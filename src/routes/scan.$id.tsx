@@ -29,6 +29,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { computeStatus, supabase, type Product, type Summary } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/scan/$id")({
   head: () => ({
@@ -60,6 +61,14 @@ function ScanPage() {
 function ScanScreen() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  // Only admins can access the scanning screen. Uploaders get redirected home.
+  useEffect(() => {
+    if (user && user.role !== "admin") {
+      navigate({ to: "/" });
+    }
+  }, [user, navigate]);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
@@ -347,7 +356,7 @@ function ScanScreen() {
             <AlertDialogTitle>Finalize this dispatch?</AlertDialogTitle>
             <AlertDialogDescription>
               Match: {counts.match} · Short: {counts.short} · Excess: {counts.excess} · Pending:{" "}
-              {counts.pending}. Pending items will be marked “Not Scanned”.
+              {counts.pending}. Pending items will be marked "Not Scanned".
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
