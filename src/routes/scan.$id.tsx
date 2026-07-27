@@ -223,7 +223,10 @@ function ScanScreen() {
         return;
       }
     }
-    const { error: sErr } = await supabase.from("summaries").update({ status: "done" }).eq("id", id);
+    const { error: sErr } = await supabase
+      .from("summaries")
+      .update({ status: "done", finalized_at: new Date().toISOString() })
+      .eq("id", id);
     setFinishing(false);
     if (sErr) {
       toast.error(`Could not finalize summary: ${sErr.message}`);
