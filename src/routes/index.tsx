@@ -190,12 +190,15 @@ function Dashboard() {
                     <Button size="sm" variant="hero" onClick={() => openSummary(s)}>
                       {s.status === "in_progress" ? "Continue Scanning" : "View Report"}
                     </Button>
-                    {/* Both admin and uploader can delete in-progress summaries */}
-                    {s.status === "in_progress" ? (
-                      <Button size="sm" variant="outline" onClick={() => setToDelete(s)}>
-                        <Trash2 className="h-4 w-4" /> Delete
-                      </Button>
-                    ) : null}
+                    {/* Delete now available on every summary, any status */}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto text-destructive hover:bg-destructive/10"
+                      onClick={() => setToDelete(s)}
+                    >
+                      <Trash2 className="h-4 w-4" /> Delete
+                    </Button>
                   </div>
                 </article>
               ))}
