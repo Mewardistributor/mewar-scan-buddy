@@ -62,7 +62,7 @@ export function CameraScanner({ onDetected, onClose }: Props) {
               width: { ideal: 1920 },
               height: { ideal: 1080 },
               advanced: [{ focusMode: "continuous" }],
-            } as MediaTrackConstraints,
+            } as unknown as MediaTrackConstraints,
             disableFlip: true,
           },
           (decodedText) => {
@@ -93,7 +93,9 @@ export function CameraScanner({ onDetected, onClose }: Props) {
           // Some Android phones start at a cropped/zoomed level — reset to widest.
           if (current > caps.zoom.min) {
             track
-              ?.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] } as MediaTrackConstraints)
+              ?.applyConstraints({
+                advanced: [{ zoom: caps.zoom.min }],
+              } as unknown as MediaTrackConstraints)
               .then(() => setZoom(caps.zoom!.min))
               .catch(() => undefined);
           }
@@ -129,7 +131,7 @@ export function CameraScanner({ onDetected, onClose }: Props) {
   function applyZoom(value: number) {
     setZoom(value);
     trackRef.current
-      ?.applyConstraints({ advanced: [{ zoom: value }] } as MediaTrackConstraints)
+      ?.applyConstraints({ advanced: [{ zoom: value }] } as unknown as MediaTrackConstraints)
       .catch(() => undefined);
   }
 
