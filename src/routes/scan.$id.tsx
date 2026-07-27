@@ -8,7 +8,9 @@ import {
   Flag,
   Keyboard,
   Loader2,
+  Plus,
   Search,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, EmptyState, Spinner } from "@/components/AppShell";
@@ -62,8 +64,8 @@ function ScanScreen() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
-  // Only admins can access the scanning screen. Uploaders get redirected home.
   useEffect(() => {
     if (user && user.role !== "admin") {
       navigate({ to: "/" });
@@ -78,6 +80,8 @@ function ScanScreen() {
   const [confirmDone, setConfirmDone] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<Product | null>(null);
   const bufferRef = useRef("");
   const lastKeyRef = useRef(0);
 
@@ -98,22 +102,27 @@ function ScanScreen() {
     if (data?.products) setProducts(data.products);
   }, [data]);
 
+  const visibleProducts = useMemo(
+    () => products.filter((p) => p.status !== "removed"),
+    [products],
+  );
+
   const counts = useMemo(() => {
     const c = { match: 0, short: 0, excess: 0, pending: 0 };
-    for (const p of products) c[p.status] = (c[p.status] ?? 0) + 1;
+    for (const p of visibleProducts) c[p.status as keyof typeof c] = (c[p.status as keyof typeof c] ?? 0) + 1;
     return c;
-  }, [products]);
-  const total = products.length;
+  }, [visibleProducts]);
+  const total = visibleProducts.length;
   const completed = total - counts.pending;
   const progress = total ? Math.round((completed / total) * 100) : 0;
 
-  const modalOpen = camera || !!active || !!readOnly || confirmDone;
+  const modalOpen = camera || !!active || !!readOnly || confirmDone || showAddItem || !!removeTarget;
 
   const handleBarcode = useCallback(
     (raw: string) => {
       const code = raw.trim();
       if (!code) return;
-      const found = products.find((p) => (p.barcode ?? "").trim() === code);
+      const found = visibleProducts.find((p) => (p.barcode ?? "").trim() === code);
       if (!found) {
         toast.error(`Barcode not in this summary: ${code}`);
         return;
@@ -124,10 +133,9 @@ function ScanScreen() {
       }
       setActive(found);
     },
-    [products],
+    [visibleProducts],
   );
 
-  // External USB / Bluetooth scanner: rapid keystrokes ending in Enter.
   useEffect(() => {
     if (modalOpen) return;
     function onKeyDown(e: KeyboardEvent) {
@@ -150,13 +158,13 @@ function ScanScreen() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter(
+    if (!q) return visibleProducts;
+    return visibleProducts.filter(
       (p) =>
         (p.product_name ?? "").toLowerCase().includes(q) ||
         (p.barcode ?? "").toLowerCase().includes(q),
     );
-  }, [products, search]);
+  }, [visibleProducts, search]);
 
   function openProduct(p: Product) {
     if (p.status === "match") setReadOnly(p);
@@ -167,16 +175,43 @@ function ScanScreen() {
     const next = products.map((p) => (p.id === updated.id ? updated : p));
     setProducts(next);
     setActive(null);
-    const pending = next.filter((p) => p.status === "pending").length;
-    const msg = `Completed: ${next.length - pending} items | Pending: ${pending} items`;
+    const visible = next.filter((p) => p.status !== "removed");
+    const pending = visible.filter((p) => p.status === "pending").length;
+    const msg = `Completed: ${visible.length - pending} items | Pending: ${pending} items`;
     setFlash(msg);
     toast.success(msg);
     setTimeout(() => setFlash(null), 2500);
   }
 
+  function onItemAdded(newProduct: Product) {
+    setProducts((prev) => [...prev, newProduct]);
+    setShowAddItem(false);
+    toast.success("Item added");
+  }
+
+  async function confirmRemove() {
+    if (!removeTarget) return;
+    const note = `Removed by Admin during scanning — Was: [${removeTarget.product_name}, MRP ₹${
+      removeTarget.required_mrp ?? 0
+    }, Box ${removeTarget.required_box ?? 0}, Pcs ${removeTarget.required_pcs ?? 0}]`;
+    const { data: updated, error } = await supabase
+      .from("products")
+      .update({ status: "removed", change_note: note })
+      .eq("id", removeTarget.id)
+      .select()
+      .single();
+    if (error || !updated) {
+      toast.error(`Could not remove item: ${error?.message ?? "unknown error"}`);
+      return;
+    }
+    setProducts((prev) => prev.map((p) => (p.id === updated.id ? (updated as Product) : p)));
+    setRemoveTarget(null);
+    toast.success("Item removed");
+  }
+
   async function finish() {
     setFinishing(true);
-    const pendingIds = products.filter((p) => p.status === "pending").map((p) => p.id);
+    const pendingIds = visibleProducts.filter((p) => p.status === "pending").map((p) => p.id);
     if (pendingIds.length) {
       const { error: nErr } = await supabase
         .from("products")
@@ -264,6 +299,12 @@ function ScanScreen() {
         </div>
       </div>
 
+      {isAdmin ? (
+        <Button variant="outline" className="w-full" onClick={() => setShowAddItem(true)}>
+          <Plus className="h-4 w-4" /> Add Item
+        </Button>
+      ) : null}
+
       <section className="surface-card space-y-3 p-4">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -283,11 +324,11 @@ function ScanScreen() {
         ) : (
           <ul className="divide-y divide-border">
             {filtered.map((p) => (
-              <li key={p.id}>
+              <li key={p.id} className="flex items-center gap-2 py-1">
                 <button
                   type="button"
                   onClick={() => openProduct(p)}
-                  className="flex w-full cursor-pointer items-center justify-between gap-3 py-3 text-left transition-colors hover:bg-secondary/40 active:scale-[0.995]"
+                  className="flex w-full cursor-pointer items-center justify-between gap-3 py-2 text-left transition-colors hover:bg-secondary/40 active:scale-[0.995]"
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{p.product_name}</span>
@@ -297,6 +338,17 @@ function ScanScreen() {
                   </span>
                   <StatusBadge status={p.status} />
                 </button>
+                {isAdmin ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0 text-destructive hover:bg-destructive/10"
+                    onClick={() => setRemoveTarget(p)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -315,6 +367,14 @@ function ScanScreen() {
 
       {active ? (
         <ProductCard product={active} onCancel={() => setActive(null)} onSaved={onSaved} />
+      ) : null}
+
+      {showAddItem ? (
+        <AddItemDialog
+          summaryId={id}
+          onCancel={() => setShowAddItem(false)}
+          onAdded={onItemAdded}
+        />
       ) : null}
 
       <Dialog open={!!readOnly} onOpenChange={(o) => !o && setReadOnly(null)}>
@@ -349,6 +409,22 @@ function ScanScreen() {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!removeTarget} onOpenChange={(o) => !o && setRemoveTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removeTarget?.product_name} will be removed from the active scanning list. It will
+              still be recorded as "Removed by Admin" in the final report.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmRemove}>Remove</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmDone} onOpenChange={(o) => !finishing && setConfirmDone(o)}>
         <AlertDialogContent>
@@ -406,6 +482,99 @@ function ReadRow({
         ))}
       </div>
     </div>
+  );
+}
+
+function AddItemDialog({
+  summaryId,
+  onCancel,
+  onAdded,
+}: {
+  summaryId: string;
+  onCancel: () => void;
+  onAdded: (p: Product) => void;
+}) {
+  const [name, setName] = useState("");
+  const [barcode, setBarcode] = useState("");
+  const [mrp, setMrp] = useState("");
+  const [box, setBox] = useState("");
+  const [pcs, setPcs] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!name.trim()) {
+      toast.error("Product name is required");
+      return;
+    }
+    const cMrp = Number(mrp) || 0;
+    const cBox = Number(box) || 0;
+    const cPcs = Number(pcs) || 0;
+    setSaving(true);
+    const { data, error } = await supabase
+      .from("products")
+      .insert({
+        summary_id: summaryId,
+        barcode: barcode.trim(),
+        product_name: name.trim(),
+        required_mrp: cMrp,
+        required_box: cBox,
+        required_pcs: cPcs,
+        completed_mrp: cMrp,
+        completed_box: cBox,
+        completed_pcs: cPcs,
+        status: "match",
+        change_note: "Added by Admin during scanning",
+      })
+      .select()
+      .single();
+    setSaving(false);
+    if (error || !data) {
+      toast.error(`Could not add item: ${error?.message ?? "unknown error"}`);
+      return;
+    }
+    onAdded(data as Product);
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && !saving && onCancel()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add Item</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label htmlFor="add-name" className="text-xs">Product Name</Label>
+            <Input id="add-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="add-barcode" className="text-xs">Barcode</Label>
+            <Input id="add-barcode" value={barcode} onChange={(e) => setBarcode(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="add-mrp" className="text-xs">MRP</Label>
+              <Input id="add-mrp" inputMode="decimal" value={mrp} onChange={(e) => setMrp(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="add-box" className="text-xs">Box</Label>
+              <Input id="add-box" inputMode="numeric" value={box} onChange={(e) => setBox(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="add-pcs" className="text-xs">Pcs</Label>
+              <Input id="add-pcs" inputMode="numeric" value={pcs} onChange={(e) => setPcs(e.target.value)} />
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="outline" onClick={onCancel} disabled={saving}>
+            Cancel
+          </Button>
+          <Button variant="hero" onClick={save} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Save
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
