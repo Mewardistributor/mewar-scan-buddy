@@ -75,6 +75,7 @@ const safe = (s: string) => s.replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "")
 export function plainStatus(p: Product): string {
   if (p.status === "match") return "Match";
   if (p.status === "removed") return "Removed";
+  if (p.status === "pending") return "Not Scanned";
   const reqBox = p.required_box ?? 0;
   const reqPcs = p.required_pcs ?? 0;
   const compBox = p.completed_box ?? 0;
@@ -94,6 +95,7 @@ const GREEN = "FFC6EFCE";
 const RED = "FFFFC7CE";
 const YELLOW = "FFFFEB9C";
 const ORANGE = "FFFFD9B3";
+const GREY = "FFE0E0E0";
 const HEADER_BG = "FF1F4E4E";
 const HEADER_FONT = "FFFFFFFF";
 
@@ -104,13 +106,42 @@ function isAdminRemoved(note: string | null) {
   return !!note && note.toLowerCase().includes("removed by admin");
 }
 
+// Compares one completed value vs required value → "excess" | "short" | "match"
+function fieldDiff(comp: number, req: number): "excess" | "short" | "match" {
+  if (comp > req) return "excess";
+  if (comp < req) return "short";
+  return "match";
+}
+
+// Builds a label like "MRP Excess, Pcs Short" from only the fields that actually differ
+function buildIssueLabel(
+  reqMrp: number,
+  reqBox: number,
+  reqPcs: number,
+  compMrp: number,
+  compBox: number,
+  compPcs: number,
+): string {
+  const parts: string[] = [];
+  const mrpDiff = fieldDiff(compMrp, reqMrp);
+  const boxDiff = fieldDiff(compBox, reqBox);
+  const pcsDiff = fieldDiff(compPcs, reqPcs);
+
+  if (mrpDiff !== "match") parts.push(`MRP ${mrpDiff === "excess" ? "Excess" : "Short"}`);
+  if (boxDiff !== "match") parts.push(`Box ${boxDiff === "excess" ? "Excess" : "Short"}`);
+  if (pcsDiff !== "match") parts.push(`Pcs ${pcsDiff === "excess" ? "Excess" : "Short"}`);
+
+  return parts.length ? `Issue: ${parts.join(", ")}` : "Issue";
+}
+
 export async function downloadFinalReport(summary: Summary, products: Product[]) {
   const wb = new ExcelJS.Workbook();
   const sheet = wb.addWorksheet("Final Report");
 
-  sheet.columns = [{ width: 32 }, { width: 14 }, { width: 12 }, { width: 12 }];
+  // Barcode | Product/Info | MRP | Box | Pcs
+  sheet.columns = [{ width: 18 }, { width: 32 }, { width: 14 }, { width: 12 }, { width: 12 }];
 
-  sheet.mergeCells("A1:D1");
+  sheet.mergeCells("A1:E1");
   const titleCell = sheet.getCell("A1");
   titleCell.value = `Mewar Distribution Centre — ${summary.title}`;
   titleCell.font = { bold: true, size: 14, color: { argb: HEADER_FONT } };
@@ -118,7 +149,7 @@ export async function downloadFinalReport(summary: Summary, products: Product[])
   titleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_BG } };
   sheet.getRow(1).height = 26;
 
-  const headerRow = sheet.addRow(["Product / Info", "MRP", "Box", "Pcs"]);
+  const headerRow = sheet.addRow(["Barcode", "Product / Info", "MRP", "Box", "Pcs"]);
   headerRow.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: HEADER_FONT } };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_BG } };
@@ -140,36 +171,45 @@ export async function downloadFinalReport(summary: Summary, products: Product[])
     const compBox = p.completed_box ?? 0;
     const compPcs = p.completed_pcs ?? 0;
 
-    sheet.addRow([p.product_name, reqMrp, reqBox, reqPcs]);
+    sheet.addRow([p.barcode ?? "", p.product_name, reqMrp, reqBox, reqPcs]);
 
-    const isMatch = p.status === "match";
-
-    if (isMatch) {
-      const row = sheet.addRow(["CORRECT", compMrp, compBox, compPcs]);
+    if (p.status === "match") {
+      const row = sheet.addRow([p.barcode ?? "", "CORRECT", compMrp, compBox, compPcs]);
       row.eachCell((cell) => {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREEN } };
       });
-      const labelCell = row.getCell(1);
+      const labelCell = row.getCell(2);
       labelCell.font = { bold: true, size: 13 };
       labelCell.alignment = { horizontal: "center", vertical: "middle" };
+    } else if (p.status === "pending") {
+      const row = sheet.addRow([p.barcode ?? "", "Not Scanned", "—", "—", "—"]);
+      row.eachCell((cell) => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY } };
+      });
+      const labelCell = row.getCell(2);
+      labelCell.font = { bold: true, italic: true };
     } else {
-      const issueLabel = p.status === "short" ? "Issue: Short" : "Issue: Excess";
-      const row = sheet.addRow([issueLabel, compMrp, compBox, compPcs]);
-      row.getCell(1).font = { bold: true };
+      const issueLabel = buildIssueLabel(reqMrp, reqBox, reqPcs, compMrp, compBox, compPcs);
+      const row = sheet.addRow([p.barcode ?? "", issueLabel, compMrp, compBox, compPcs]);
+      row.getCell(2).font = { bold: true };
 
-      if (compMrp !== reqMrp) row.getCell(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: RED } };
-      if (compBox !== reqBox) row.getCell(3).fill = { type: "pattern", pattern: "solid", fgColor: { argb: RED } };
-      if (compPcs !== reqPcs) row.getCell(4).fill = { type: "pattern", pattern: "solid", fgColor: { argb: RED } };
+      if (fieldDiff(compMrp, reqMrp) !== "match")
+        row.getCell(3).fill = { type: "pattern", pattern: "solid", fgColor: { argb: RED } };
+      if (fieldDiff(compBox, reqBox) !== "match")
+        row.getCell(4).fill = { type: "pattern", pattern: "solid", fgColor: { argb: RED } };
+      if (fieldDiff(compPcs, reqPcs) !== "match")
+        row.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: RED } };
     }
 
     sheet.addRow([]);
   }
 
   if (adminAdded.length > 0) {
-    const secHeader = sheet.addRow(["Items Added by Admin", "", "", ""]);
-    secHeader.getCell(1).font = { bold: true, italic: true };
+    const secHeader = sheet.addRow(["", "Items Added by Admin", "", "", ""]);
+    secHeader.getCell(2).font = { bold: true, italic: true };
     for (const p of adminAdded) {
       const row = sheet.addRow([
+        p.barcode ?? "",
         p.product_name,
         p.completed_mrp ?? p.required_mrp ?? 0,
         p.completed_box ?? p.required_box ?? 0,
@@ -183,10 +223,11 @@ export async function downloadFinalReport(summary: Summary, products: Product[])
   }
 
   if (adminRemoved.length > 0) {
-    const secHeader = sheet.addRow(["Items Removed by Admin", "", "", ""]);
-    secHeader.getCell(1).font = { bold: true, italic: true };
+    const secHeader = sheet.addRow(["", "Items Removed by Admin", "", "", ""]);
+    secHeader.getCell(2).font = { bold: true, italic: true };
     for (const p of adminRemoved) {
       const row = sheet.addRow([
+        p.barcode ?? "",
         p.product_name,
         p.required_mrp ?? 0,
         p.required_box ?? 0,
