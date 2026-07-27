@@ -88,6 +88,11 @@ function Dashboard() {
   const shared = summaries.filter((s) => s.status === "done" && s.shared_with_uploaders);
   const reports = summaries.filter((s) => s.status === "done");
 
+  // Uploaders should only see in-progress summaries in the main list —
+  // completed ones only show up (for them) under the Shared Reports tab if an admin shared them.
+  const visibleSummaries =
+    user?.role === "admin" ? summaries : summaries.filter((s) => s.status === "in_progress");
+
   async function confirmDelete() {
     if (!toDelete) return;
     setDeleting(true);
@@ -122,8 +127,9 @@ function Dashboard() {
           </p>
           <h1 className="mt-1 font-display text-2xl font-semibold">Dispatch Summaries</h1>
           <p className="mt-1 text-sm opacity-85">
-            {summaries.length} total · {summaries.filter((s) => s.status === "in_progress").length}{" "}
-            in progress · {reports.length} completed
+            {visibleSummaries.length} total ·{" "}
+            {visibleSummaries.filter((s) => s.status === "in_progress").length} in progress ·{" "}
+            {(user?.role === "admin" ? reports.length : shared.length)} completed
           </p>
         </div>
         <Button asChild variant="gold" size="lg" className="w-full sm:w-auto">
@@ -150,7 +156,7 @@ function Dashboard() {
             <p className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">
               {(error as Error).message}
             </p>
-          ) : summaries.length === 0 ? (
+          ) : visibleSummaries.length === 0 ? (
             <EmptyState
               icon={<ClipboardList className="h-6 w-6" />}
               title="No summaries yet"
@@ -165,7 +171,7 @@ function Dashboard() {
             />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
-              {summaries.map((s) => (
+              {visibleSummaries.map((s) => (
                 <article
                   key={s.id}
                   className="surface-card group flex flex-col gap-3 p-4 transition-transform duration-200 hover:-translate-y-0.5"
@@ -214,7 +220,7 @@ function Dashboard() {
       <AlertDialog open={!!toDelete} onOpenChange={(o) => !o && setToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete “{toDelete?.title}”?</AlertDialogTitle>
+            <AlertDialogTitle>Delete "{toDelete?.title}"?</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete this summary? This cannot be undone. All scanned
               products in it will be removed too.
