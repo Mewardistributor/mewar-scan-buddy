@@ -5,7 +5,7 @@ import {
   CalendarDays,
   ClipboardList,
   Download,
-  FileSpreadsheet,
+  FileText,
   Inbox,
   Loader2,
   Plus,
@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/lib/auth";
 import { supabase, type Product, type Summary } from "@/lib/supabase";
-import { downloadDetailedReport, downloadEasyReport } from "@/lib/excel";
+import { downloadFinalReport, downloadChangesSummary } from "@/lib/excel";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -57,14 +57,6 @@ function formatDate(value: string) {
     : d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function DashboardPage() {
-  return (
-    <AppShell>
-      <Dashboard />
-    </AppShell>
-  );
-}
-
 function Dashboard() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -88,8 +80,6 @@ function Dashboard() {
   const shared = summaries.filter((s) => s.status === "done" && s.shared_with_uploaders);
   const reports = summaries.filter((s) => s.status === "done");
 
-  // Uploaders should only see in-progress summaries in the main list —
-  // completed ones only show up (for them) under the Shared Reports tab if an admin shared them.
   const visibleSummaries =
     user?.role === "admin" ? summaries : summaries.filter((s) => s.status === "in_progress");
 
@@ -200,6 +190,7 @@ function Dashboard() {
                     <Button size="sm" variant="hero" onClick={() => openSummary(s)}>
                       {s.status === "in_progress" ? "Continue Scanning" : "View Report"}
                     </Button>
+                    {/* Both admin and uploader can delete in-progress summaries */}
                     {s.status === "in_progress" ? (
                       <Button size="sm" variant="outline" onClick={() => setToDelete(s)}>
                         <Trash2 className="h-4 w-4" /> Delete
@@ -213,7 +204,11 @@ function Dashboard() {
         </TabsContent>
 
         <TabsContent value="reports" className="mt-4">
-          <ReportsList summaries={user?.role === "admin" ? reports : shared} isLoading={isLoading} />
+          <ReportsList
+            summaries={user?.role === "admin" ? reports : shared}
+            isLoading={isLoading}
+            onDeleted={() => qc.invalidateQueries({ queryKey: ["summaries"] })}
+          />
         </TabsContent>
       </Tabs>
 
@@ -245,11 +240,30 @@ function Dashboard() {
   );
 }
 
-function ReportsList({ summaries, isLoading }: { summaries: Summary[]; isLoading: boolean }) {
-  const { user } = useAuth();
-  const [busy, setBusy] = useState<string | null>(null);
+function DashboardPage() {
+  return (
+    <AppShell>
+      <Dashboard />
+    </AppShell>
+  );
+}
 
-  async function download(s: Summary, kind: "detailed" | "easy") {
+function ReportsList({
+  summaries,
+  isLoading,
+  onDeleted,
+}: {
+  summaries: Summary[];
+  isLoading: boolean;
+  onDeleted: () => void;
+}) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const [busy, setBusy] = useState<string | null>(null);
+  const [toDelete, setToDelete] = useState<Summary | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  async function download(s: Summary, kind: "excel" | "word") {
     setBusy(`${s.id}-${kind}`);
     const { data, error } = await supabase
       .from("products")
@@ -262,9 +276,29 @@ function ReportsList({ summaries, isLoading }: { summaries: Summary[]; isLoading
       return;
     }
     const products = (data ?? []) as Product[];
-    if (kind === "detailed") downloadDetailedReport(s, products);
-    else downloadEasyReport(s, products);
+    if (kind === "excel") await downloadFinalReport(s, products);
+    else await downloadChangesSummary(s, products);
     toast.success("Report downloaded");
+  }
+
+  async function confirmDeleteReport() {
+    if (!toDelete) return;
+    setDeleting(true);
+    const { error: pErr } = await supabase.from("products").delete().eq("summary_id", toDelete.id);
+    if (pErr) {
+      setDeleting(false);
+      toast.error(`Could not delete products: ${pErr.message}`);
+      return;
+    }
+    const { error: sErr } = await supabase.from("summaries").delete().eq("id", toDelete.id);
+    setDeleting(false);
+    if (sErr) {
+      toast.error(`Could not delete report: ${sErr.message}`);
+      return;
+    }
+    toast.success("Report deleted");
+    setToDelete(null);
+    onDeleted();
   }
 
   if (isLoading) return <Spinner label="Loading reports..." />;
@@ -295,30 +329,65 @@ function ReportsList({ summaries, isLoading }: { summaries: Summary[]; isLoading
             {formatDate(s.created_at)} · {s.uploaded_by || "Unknown"}
           </p>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="hero" onClick={() => download(s, "detailed")} disabled={busy === `${s.id}-detailed`}>
-              {busy === `${s.id}-detailed` ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <FileSpreadsheet className="h-4 w-4" />
-              )}
-              Detailed
-            </Button>
-            <Button size="sm" variant="gold" onClick={() => download(s, "easy")} disabled={busy === `${s.id}-easy`}>
-              {busy === `${s.id}-easy` ? (
+            <Button size="sm" variant="hero" onClick={() => download(s, "excel")} disabled={busy === `${s.id}-excel`}>
+              {busy === `${s.id}-excel` ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Download className="h-4 w-4" />
               )}
-              Easy
+              Final Report
+            </Button>
+            <Button size="sm" variant="gold" onClick={() => download(s, "word")} disabled={busy === `${s.id}-word`}>
+              {busy === `${s.id}-word` ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="h-4 w-4" />
+              )}
+              Changes Summary
             </Button>
             <Button asChild size="sm" variant="outline">
               <Link to="/report/$id" params={{ id: s.id }}>
                 Open
               </Link>
             </Button>
+            {isAdmin ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="ml-auto text-destructive hover:bg-destructive/10"
+                onClick={() => setToDelete(s)}
+              >
+                <Trash2 className="h-4 w-4" /> Delete
+              </Button>
+            ) : null}
           </div>
         </article>
       ))}
+
+      <AlertDialog open={!!toDelete} onOpenChange={(o) => !o && setToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete report "{toDelete?.title}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this completed report and all its product data. This
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                confirmDeleteReport();
+              }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
