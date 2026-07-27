@@ -43,7 +43,7 @@ export const Route = createFileRoute("/")({
       { property: "og:title", content: "Dispatch Dashboard | Mewar Distribution Centre" },
       {
         property: "og:description",
-        content: "Upload dispatch summaries, scan barcodes and download verification reports.",
+        content: "Warehouse dispatch verification dashboard for Mewar Distribution Centre — upload dispatch summaries, scan barcodes and download verification reports.",
       },
     ],
   }),
