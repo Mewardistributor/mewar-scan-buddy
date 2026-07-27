@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { ArrowLeft, Download, FileSpreadsheet, Loader2, Share2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { ArrowLeft, Download, FileText, Loader2, RotateCcw, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, Spinner } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
 import { supabase, type Product, type Summary } from "@/lib/supabase";
-import { downloadDetailedReport, downloadEasyReport, plainStatus } from "@/lib/excel";
+import { downloadFinalReport, downloadChangesSummary, plainStatus } from "@/lib/excel";
 
 export const Route = createFileRoute("/report/$id")({
   head: () => ({
@@ -19,17 +19,19 @@ export const Route = createFileRoute("/report/$id")({
       {
         name: "description",
         content:
-          "Final verification report with match, short, excess and not-scanned counts, plus detailed and easy Excel downloads.",
+          "Final verification report with match, short, excess and not-scanned counts, plus Excel and Word downloads.",
       },
       { property: "og:title", content: "Final Dispatch Report | Mewar Distribution Centre" },
       {
         property: "og:description",
-        content: "Verification results with detailed and easy Excel report downloads.",
+        content: "Verification results with Excel and Word report downloads.",
       },
     ],
   }),
   component: ReportPage,
 });
+
+const GRACE_MS = 5 * 60 * 1000;
 
 function ReportPage() {
   return (
@@ -42,9 +44,13 @@ function ReportPage() {
 function FinalReport() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const { user } = useAuth();
   const [shared, setShared] = useState<boolean | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [downloading, setDownloading] = useState<"excel" | "word" | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const [reopening, setReopening] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["report", id],
@@ -58,6 +64,11 @@ function FinalReport() {
       return { summary: s.data as Summary, products: (p.data ?? []) as Product[] };
     },
   });
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   if (isLoading) return <Spinner label="Building report..." />;
   if (error || !data)
@@ -75,6 +86,27 @@ function FinalReport() {
     pending: products.filter((p) => p.status === "pending").length,
   };
   const isShared = shared ?? !!summary.shared_with_uploaders;
+
+  const finalizedAt = (summary as any).finalized_at
+    ? new Date((summary as any).finalized_at).getTime()
+    : null;
+  const msLeft = finalizedAt ? GRACE_MS - (now - finalizedAt) : 0;
+  const canReopen = user?.role === "admin" && finalizedAt && msLeft > 0;
+  const minutesLeft = Math.max(0, Math.floor(msLeft / 60000));
+  const secondsLeft = Math.max(0, Math.floor((msLeft % 60000) / 1000));
+
+  async function handleReopen() {
+    setReopening(true);
+    const { error } = await supabase.from("summaries").update({ status: "in_progress" }).eq("id", id);
+    setReopening(false);
+    if (error) {
+      toast.error(`Could not reopen: ${error.message}`);
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["summaries"] });
+    toast.success("Reopened for editing");
+    navigate({ to: "/scan/$id", params: { id } });
+  }
 
   async function toggleShare(next: boolean) {
     setSharing(true);
@@ -98,6 +130,23 @@ function FinalReport() {
 
     setShared(next);
     toast.success(next ? "Report shared with uploaders" : "Sharing turned off");
+  }
+
+  async function handleDownload(kind: "excel" | "word") {
+    setDownloading(kind);
+    try {
+      if (kind === "excel") {
+        await downloadFinalReport(summary, products);
+        toast.success("Final report downloaded");
+      } else {
+        await downloadChangesSummary(summary, products);
+        toast.success("Changes summary downloaded");
+      }
+    } catch (e) {
+      toast.error(`Download failed: ${(e as Error).message}`);
+    } finally {
+      setDownloading(null);
+    }
   }
 
   return (
@@ -130,28 +179,31 @@ function FinalReport() {
         </div>
       </section>
 
+      {canReopen ? (
+        <section className="surface-card flex items-center justify-between gap-3 border border-warning bg-warning/10 p-4">
+          <div>
+            <p className="text-sm font-semibold">Grace period active</p>
+            <p className="text-xs text-muted-foreground">
+              {minutesLeft}m {secondsLeft}s left to reopen and fix missed items
+            </p>
+          </div>
+          <Button variant="outline" onClick={handleReopen} disabled={reopening}>
+            {reopening ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+            Reopen
+          </Button>
+        </section>
+      ) : null}
+
       <section className="surface-card space-y-3 p-5">
         <h2 className="font-display text-lg font-semibold">Downloads</h2>
         <div className="grid gap-2 sm:grid-cols-2">
-          <Button
-            variant="hero"
-            size="lg"
-            onClick={() => {
-              downloadDetailedReport(summary, products);
-              toast.success("Detailed report downloaded");
-            }}
-          >
-            <FileSpreadsheet className="h-5 w-5" /> Download Detailed Report
+          <Button variant="hero" size="lg" onClick={() => handleDownload("excel")} disabled={downloading === "excel"}>
+            {downloading === "excel" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Download className="h-5 w-5" />}
+            Download Final Report
           </Button>
-          <Button
-            variant="gold"
-            size="lg"
-            onClick={() => {
-              downloadEasyReport(summary, products);
-              toast.success("Easy report downloaded");
-            }}
-          >
-            <Download className="h-5 w-5" /> Download Easy Report
+          <Button variant="gold" size="lg" onClick={() => handleDownload("word")} disabled={downloading === "word"}>
+            {downloading === "word" ? <Loader2 className="h-5 w-5 animate-spin" /> : <FileText className="h-5 w-5" />}
+            Download Changes Summary
           </Button>
         </div>
 
