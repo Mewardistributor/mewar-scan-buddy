@@ -11,12 +11,29 @@ export function CameraScanner({ onDetected, onClose }: Props) {
   const containerId = "mdc-camera-reader";
   const scannerRef = useRef<any>(null);
   const firedRef = useRef(false);
+  const runningRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     firedRef.current = false;
+
+    async function safeStop() {
+      const s = scannerRef.current;
+      if (!s || !runningRef.current) return;
+      runningRef.current = false;
+      try {
+        await s.stop();
+      } catch {
+        /* already stopped, ignore */
+      }
+      try {
+        s.clear();
+      } catch {
+        /* ignore */
+      }
+    }
 
     async function start() {
       try {
@@ -47,19 +64,16 @@ export function CameraScanner({ onDetected, onClose }: Props) {
             if (firedRef.current) return;
             firedRef.current = true;
             const code = decodedText.trim();
-            // Stop the camera first, then hand off the code.
-            scanner
-              .stop()
-              .catch(() => undefined)
-              .finally(() => {
-                onDetected(code);
-              });
+            safeStop().finally(() => {
+              onDetected(code);
+            });
           },
           () => {
-            // per-frame "not found" callback — ignore, this fires constantly while scanning
+            /* per-frame miss, ignore */
           }
         );
 
+        runningRef.current = true;
         if (!cancelled) setStarting(false);
       } catch (e) {
         if (!cancelled) {
@@ -77,18 +91,7 @@ export function CameraScanner({ onDetected, onClose }: Props) {
 
     return () => {
       cancelled = true;
-      const s = scannerRef.current;
-      if (s) {
-        s.stop()
-          .catch(() => undefined)
-          .finally(() => {
-            try {
-              s.clear();
-            } catch {
-              /* ignore */
-            }
-          });
-      }
+      safeStop();
     };
   }, [onDetected]);
 
