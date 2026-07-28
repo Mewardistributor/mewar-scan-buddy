@@ -8,6 +8,9 @@ type Props = {
   products: Product[];
   onSelect: (product: Product) => void;
   onClose: () => void;
+  // "gallery": skip the camera entirely and open the photo picker right
+  // away — used by a standalone "Upload from Gallery" entry point.
+  mode?: "camera" | "gallery";
 };
 
 function normalize(text: string) {
@@ -37,7 +40,7 @@ function scoreMatch(ocrText: string, productName: string) {
   return hits / nameWords.length;
 }
 
-export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
+export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera" }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -53,6 +56,28 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
   const [backCameras, setBackCameras] = useState<MediaDeviceInfo[]>([]);
   const [cameraIndex, setCameraIndex] = useState(0);
 
+  // When opened directly for gallery upload, skip camera access entirely
+  // and open the native photo picker right away.
+  const [pendingGalleryPick, setPendingGalleryPick] = useState(mode === "gallery");
+
+  useEffect(() => {
+    if (mode !== "gallery") return;
+    fileInputRef.current?.click();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (mode !== "gallery") return;
+    const input = fileInputRef.current;
+    if (!input) return;
+    const onCancel = () => {
+      if (pendingGalleryPick) onClose();
+    };
+    input.addEventListener("cancel", onCancel);
+    return () => input.removeEventListener("cancel", onCancel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, pendingGalleryPick]);
+
   useEffect(() => {
     const original = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -62,7 +87,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
   }, []);
 
   useEffect(() => {
-    if (phase !== "camera") return;
+    if (phase !== "camera" || pendingGalleryPick) return;
     let cancelled = false;
 
     async function discoverBackCameras(): Promise<MediaDeviceInfo[]> {
@@ -162,7 +187,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
       streamRef.current = null;
       trackRef.current = null;
     };
-  }, [phase, cameraIndex]);
+  }, [phase, cameraIndex, pendingGalleryPick]);
 
   function switchCamera() {
     if (backCameras.length < 2) return;
@@ -235,6 +260,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    setPendingGalleryPick(false);
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
@@ -279,7 +305,14 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
         </button>
       </div>
 
-      {phase === "camera" ? (
+      {phase === "camera" && pendingGalleryPick ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-white">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-white/80">Opening gallery...</p>
+        </div>
+      ) : null}
+
+      {phase === "camera" && !pendingGalleryPick ? (
         <div className="relative flex-1 overflow-hidden bg-black">
           <video
             ref={videoRef}
