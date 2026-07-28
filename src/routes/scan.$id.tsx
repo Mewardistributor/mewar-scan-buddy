@@ -101,15 +101,19 @@ function ScanScreen() {
   }, [data]);
 
   const counts = useMemo(() => {
-    const c = { match: 0, short: 0, excess: 0, pending: 0 };
+    const c: Record<string, number> = { match: 0, short: 0, excess: 0, pending: 0 };
     for (const p of products) c[p.status] = (c[p.status] ?? 0) + 1;
-    return c;
+    return c as { match: number; short: number; excess: number; pending: number };
   }, [products]);
   const total = products.length;
   const completed = total - counts.pending;
   const progress = total ? Math.round((completed / total) * 100) : 0;
 
+  // Summaries created from a sheet without a barcode column are photo-match only.
+  const photoOnly = products.length > 0 && products.every((p) => !(p.barcode ?? "").trim());
+
   const modalOpen = camera || photoMatch || !!active || !!readOnly || confirmDone;
+
 
   const handleBarcode = useCallback(
     (raw: string) => {
@@ -140,7 +144,7 @@ function ScanScreen() {
 
   // External USB / Bluetooth scanner: rapid keystrokes ending in Enter.
   useEffect(() => {
-    if (modalOpen) return;
+    if (modalOpen || photoOnly) return;
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
@@ -157,7 +161,7 @@ function ScanScreen() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [modalOpen, handleBarcode]);
+  }, [modalOpen, photoOnly, handleBarcode]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -265,18 +269,25 @@ function ScanScreen() {
         ) : null}
       </section>
 
-      <div className="grid gap-2 sm:grid-cols-3">
-        <Button variant="hero" size="lg" onClick={() => setCamera(true)}>
-          <Camera className="h-5 w-5" /> Scan with Camera
-        </Button>
-        <Button variant="outline" size="lg" onClick={() => setPhotoMatch(true)}>
+      {photoOnly ? (
+        <Button variant="hero" size="lg" className="w-full" onClick={() => setPhotoMatch(true)}>
           <ImagePlus className="h-5 w-5" /> Match by Photo
         </Button>
-        <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-          <Keyboard className="h-4 w-4 text-primary" />
-          USB / Bluetooth scanner ready — just scan
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Button variant="hero" size="lg" onClick={() => setCamera(true)}>
+            <Camera className="h-5 w-5" /> Scan with Camera
+          </Button>
+          <Button variant="outline" size="lg" onClick={() => setPhotoMatch(true)}>
+            <ImagePlus className="h-5 w-5" /> Match by Photo
+          </Button>
+          <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+            <Keyboard className="h-4 w-4 text-primary" />
+            USB / Bluetooth scanner ready — just scan
+          </div>
         </div>
-      </div>
+      )}
+
 
       <section className="surface-card space-y-3 p-4">
         <div className="relative">
@@ -306,8 +317,10 @@ function ScanScreen() {
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{p.product_name}</span>
                     <span className="block font-mono text-xs text-muted-foreground">
-                      {p.barcode} · Req {p.required_box ?? 0} Box / {p.required_pcs ?? 0} Pcs
+                      {photoOnly ? "" : `${p.barcode} · `}Req {p.required_box ?? 0} Box /{" "}
+                      {p.required_pcs ?? 0} Pcs
                     </span>
+
                   </span>
                   <StatusBadge status={p.status} />
                 </button>
@@ -471,7 +484,10 @@ function ProductCard({
         <DialogHeader>
           <DialogTitle className="text-left leading-snug">{product.product_name}</DialogTitle>
         </DialogHeader>
-        <p className="-mt-2 font-mono text-xs text-muted-foreground">{product.barcode}</p>
+        {product.barcode ? (
+          <p className="-mt-2 font-mono text-xs text-muted-foreground">{product.barcode}</p>
+        ) : null}
+
 
         <ReadRow
           label="Required"

@@ -5,6 +5,7 @@ const styles: Record<ProductStatus | "not_scanned", string> = {
   match: "bg-success/15 text-success",
   short: "bg-destructive/12 text-destructive",
   excess: "bg-warning/20 text-warning-foreground",
+  removed: "bg-muted text-muted-foreground line-through",
   not_scanned: "bg-muted text-muted-foreground",
 };
 
@@ -13,7 +14,9 @@ const labels: Record<ProductStatus, string> = {
   match: "Match",
   short: "Short",
   excess: "Excess",
+  removed: "Removed",
 };
+
 
 export function StatusBadge({ status }: { status: ProductStatus }) {
   return (

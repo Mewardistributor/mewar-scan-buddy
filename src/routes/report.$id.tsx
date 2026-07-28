@@ -79,6 +79,8 @@ function FinalReport() {
     );
 
   const { summary, products } = data;
+  const noBarcode = products.length > 0 && products.every((p) => !(p.barcode ?? "").trim());
+
   const counts = {
     match: products.filter((p) => p.status === "match").length,
     short: products.filter((p) => p.status === "short").length,
@@ -136,7 +138,7 @@ function FinalReport() {
     setDownloading(kind);
     try {
       if (kind === "excel") {
-        await downloadFinalReport(summary, products);
+        await downloadFinalReport(summary, products, { noBarcode });
         toast.success("Final report downloaded");
       } else {
         await downloadChangesSummary(summary, products);
@@ -227,7 +229,10 @@ function FinalReport() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-medium">{p.product_name}</p>
-                  <p className="font-mono text-xs text-muted-foreground">{p.barcode}</p>
+                  {p.barcode ? (
+                    <p className="font-mono text-xs text-muted-foreground">{p.barcode}</p>
+                  ) : null}
+
                 </div>
                 <StatusBadge status={p.status} />
               </div>

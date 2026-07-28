@@ -19,6 +19,9 @@ import { parseDispatchExcel, type ParsedRow } from "@/lib/excel";
 import { supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/add")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    mode: search.mode === "photo" ? ("photo" as const) : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Add Dispatch Summary | Mewar Distribution Centre" },
@@ -45,12 +48,16 @@ function AddSummaryPage() {
   );
 }
 
+
 let manualSeq = 0;
 
 function AddSummary() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { mode } = Route.useSearch();
+  const noBarcode = mode === "photo";
   const fileRef = useRef<HTMLInputElement>(null);
+
   const [title, setTitle] = useState("");
   const [rows, setRows] = useState<ParsedRow[] | null>(null);
   const [parsing, setParsing] = useState(false);
@@ -72,7 +79,7 @@ function AddSummary() {
   async function onFile(file: File) {
     setParsing(true);
     try {
-      const parsed = await parseDispatchExcel(file);
+      const parsed = await parseDispatchExcel(file, { noBarcode });
       if (parsed.length === 0) {
         toast.error("No product rows found in this file");
       } else {
@@ -123,17 +130,18 @@ function AddSummary() {
   function addManual() {
     const barcode = newItem.barcode.trim();
     const name = newItem.product_name.trim();
-    if (!barcode || !name) {
-      toast.error("Barcode and product name are required");
+    if (!name || (!noBarcode && !barcode)) {
+      toast.error(noBarcode ? "Product name is required" : "Barcode and product name are required");
       return;
     }
     manualSeq += 1;
     setRows((prev) => [
       ...(prev ?? []),
       {
-        key: `manual-${manualSeq}-${barcode}`,
+        key: `manual-${manualSeq}-${barcode || name}`,
         barcode,
         product_name: name,
+
         required_mrp: Number(newItem.mrp) || 0,
         required_box: Number(newItem.box) || 0,
         required_pcs: Number(newItem.pcs) || 0,
@@ -205,11 +213,16 @@ function AddSummary() {
 
       <section className="surface-card space-y-4 p-5">
         <div>
-          <h1 className="font-display text-xl font-semibold">New Dispatch Summary</h1>
+          <h1 className="font-display text-xl font-semibold">
+            {noBarcode ? "New Dispatch Summary (Without Scanner)" : "New Dispatch Summary"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Name this dispatch, then upload the MARG daily dispatch Excel sheet.
+            {noBarcode
+              ? "Name this dispatch, then upload the MARG dispatch Excel sheet that has no barcode column. Verification will use Match by Photo."
+              : "Name this dispatch, then upload the MARG daily dispatch Excel sheet."}
           </p>
         </div>
+
         <div className="space-y-2">
           <Label htmlFor="title">Summary title</Label>
           <Input
@@ -259,12 +272,15 @@ function AddSummary() {
 
           {showAdd ? (
             <div className="grid gap-2 rounded-xl bg-secondary/60 p-3 sm:grid-cols-6">
-              <Input
-                placeholder="Barcode"
-                value={newItem.barcode}
-                onChange={(e) => setNewItem({ ...newItem, barcode: e.target.value })}
-                className="sm:col-span-2"
-              />
+              {noBarcode ? null : (
+                <Input
+                  placeholder="Barcode"
+                  value={newItem.barcode}
+                  onChange={(e) => setNewItem({ ...newItem, barcode: e.target.value })}
+                  className="sm:col-span-2"
+                />
+              )}
+
               <Input
                 placeholder="Product name"
                 value={newItem.product_name}
@@ -320,7 +336,10 @@ function AddSummary() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate font-medium">{r.product_name}</p>
-                      <p className="font-mono text-xs text-muted-foreground">{r.barcode}</p>
+                      {r.barcode ? (
+                        <p className="font-mono text-xs text-muted-foreground">{r.barcode}</p>
+                      ) : null}
+
                     </div>
                     <Button size="icon" variant="ghost" onClick={() => removeRow(r.key)} aria-label="Remove item">
                       <Trash2 className="h-4 w-4 text-destructive" />

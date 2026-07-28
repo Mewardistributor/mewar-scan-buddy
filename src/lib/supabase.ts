@@ -32,7 +32,7 @@ export type Summary = {
   created_at: string;
 };
 
-export type ProductStatus = "pending" | "match" | "short" | "excess";
+export type ProductStatus = "pending" | "match" | "short" | "excess" | "removed";
 
 export type Product = {
   id: string;
