@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Image as ImageIcon, Loader2, RotateCcw, Search, X, CheckCircle2, ZoomIn, ZoomOut } from "lucide-react";
+import { Camera, Image as ImageIcon, Loader2, RotateCcw, Search, X, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Product } from "@/lib/supabase";
@@ -49,15 +49,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
   const [matches, setMatches] = useState<Product[]>([]);
   const [manualQuery, setManualQuery] = useState("");
   const [noMatch, setNoMatch] = useState(false);
-
-  const [hwZoomSupported, setHwZoomSupported] = useState(false);
-  const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number }>({
-    min: 1,
-    max: 1,
-    step: 1,
-  });
-  const [zoomValue, setZoomValue] = useState(1);
-  const [visualScale, setVisualScale] = useState(1);
 
   const [backCameras, setBackCameras] = useState<MediaDeviceInfo[]>([]);
   const [cameraIndex, setCameraIndex] = useState(0);
@@ -129,24 +120,16 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
         const [track] = stream.getVideoTracks();
         trackRef.current = track;
 
+        // Make sure the camera starts at its natural (1x / no-zoom) level,
+        // rather than whatever zoom level it happened to power on at.
         try {
           const caps: any = track.getCapabilities ? track.getCapabilities() : {};
-          if (caps && caps.zoom && typeof caps.zoom.min === "number" && typeof caps.zoom.max === "number") {
-            const min = caps.zoom.min;
-            const max = caps.zoom.max;
-            const step = caps.zoom.step || 0.1;
-            setZoomRange({ min, max, step });
-            setZoomValue(min);
-            await (track as any).applyConstraints({ advanced: [{ zoom: min }] });
-          } else {
-            setZoomRange({ min: 1, max: 8, step: 0.1 });
-            setZoomValue(1);
+          if (caps && caps.zoom && typeof caps.zoom.min === "number") {
+            await (track as any).applyConstraints({ advanced: [{ zoom: caps.zoom.min }] });
           }
         } catch {
-          setZoomRange({ min: 1, max: 8, step: 0.1 });
-          setZoomValue(1);
+          /* ignore, not all devices/browsers support this */
         }
-        setHwZoomSupported(true);
 
         streamRef.current = stream;
         if (videoRef.current) {
@@ -177,17 +160,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
   function switchCamera() {
     if (backCameras.length < 2) return;
     setCameraIndex((i) => (i + 1) % backCameras.length);
-  }
-
-  async function handleZoomChange(value: number) {
-    setZoomValue(value);
-    const track = trackRef.current;
-    if (!track) return;
-    try {
-      await (track as any).applyConstraints({ advanced: [{ zoom: value }] });
-    } catch {
-      /* ignore */
-    }
   }
 
   function findMatches(text: string): Product[] {
@@ -307,40 +279,17 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
             playsInline
             muted
             className="h-full w-full object-cover"
-            style={{
-              transform: `scale(${visualScale})`,
-              transformOrigin: "center center",
-              transition: "transform 0.1s ease-out",
-            }}
           />
           <div className="pointer-events-none absolute inset-6 rounded-2xl border-2 border-dashed border-white/50" />
           {error ? (
-            <div className="absolute inset-x-4 bottom-40 rounded-xl bg-white p-4 text-sm text-red-600 shadow-lg">
+            <div className="absolute inset-x-4 bottom-32 rounded-xl bg-white p-4 text-sm text-red-600 shadow-lg">
               {error}
             </div>
           ) : (
-            <p className="absolute inset-x-0 bottom-40 text-center text-xs font-medium text-white/80">
+            <p className="absolute inset-x-0 bottom-32 text-center text-xs font-medium text-white/80">
               Frame the product name / label clearly
             </p>
           )}
-
-          <div className="absolute inset-x-6 bottom-28 flex items-center gap-3 rounded-full bg-black/50 px-4 py-2 backdrop-blur-md">
-            <ZoomOut className="h-4 w-4 shrink-0 text-white" />
-            <input
-              type="range"
-              min={0.4}
-              max={1}
-              step={0.02}
-              value={visualScale}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                setVisualScale(v);
-                handleZoomChange(zoomRange.min);
-              }}
-              className="h-1.5 w-full cursor-pointer accent-primary"
-            />
-            <ZoomIn className="h-4 w-4 shrink-0 text-white" />
-          </div>
 
           {backCameras.length > 1 ? (
             <button
