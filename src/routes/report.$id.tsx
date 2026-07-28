@@ -136,7 +136,7 @@ function FinalReport() {
     setDownloading(kind);
     try {
       if (kind === "excel") {
-        await downloadFinalReport(summary, products);
+        await downloadFinalReport(summary, products, { noBarcode });
         toast.success("Final report downloaded");
       } else {
         await downloadChangesSummary(summary, products);
