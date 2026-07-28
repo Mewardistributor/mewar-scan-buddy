@@ -65,6 +65,29 @@ export function CameraScanner({ onDetected, onClose }: Props) {
       }
     }
 
+    // Picks the rear camera least likely to be an ultra-zoomed telephoto lens.
+    // Many phones expose 2-3 back cameras (wide / main / telephoto) and some
+    // browsers default to whichever the OS reports first, which is sometimes
+    // the telephoto -- causing the "too zoomed in" look. We prefer a camera
+    // whose label suggests "wide"/"main"/"back camera" over one that says
+    // "tele"/"zoom".
+    async function pickBackCameraId(Html5Qrcode: any): Promise<string | null> {
+      try {
+        const cameras = await Html5Qrcode.getCameras();
+        if (!cameras || !cameras.length) return null;
+
+        const back = cameras.filter((c: any) => /back|rear|environment/i.test(c.label));
+        const pool = back.length ? back : cameras;
+
+        const preferred = pool.find((c: any) => /wide|main/i.test(c.label) && !/tele/i.test(c.label));
+        const avoidTele = pool.find((c: any) => !/tele|zoom/i.test(c.label));
+
+        return (preferred || avoidTele || pool[0]).id;
+      } catch {
+        return null;
+      }
+    }
+
     async function start() {
       try {
         const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
@@ -84,24 +107,62 @@ export function CameraScanner({ onDetected, onClose }: Props) {
         });
         scannerRef.current = scanner;
 
-        await scanner.start(
-          { facingMode: "environment" },
-          {
-            fps: 10,
-            qrbox: { width: 280, height: 150 },
+        const backCameraId = await pickBackCameraId(Html5Qrcode);
+
+        // Request a wider field of view / force zoom to 1x where the browser
+        // supports it. Falls back to plain facingMode if the camera/browser
+        // rejects the advanced constraint (Safari/iOS ignores `advanced`).
+        const cameraTarget: any = backCameraId
+          ? backCameraId
+          : { facingMode: { ideal: "environment" } };
+
+        const videoConfig = {
+          fps: 10,
+          qrbox: { width: 280, height: 150 },
+          aspectRatio: 1.777,
+          videoConstraints: {
+            ...(typeof cameraTarget === "string"
+              ? { deviceId: { exact: cameraTarget } }
+              : cameraTarget),
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            advanced: [{ zoom: 1 }],
           },
-          (decodedText: string) => {
-            if (firedRef.current) return;
-            firedRef.current = true;
-            const code = decodedText.trim();
-            safeStop().finally(() => {
-              onDetected(code);
-            });
-          },
-          () => {
-            /* per-frame miss, ignore */
-          }
-        );
+        };
+
+        try {
+          await scanner.start(
+            cameraTarget,
+            videoConfig,
+            (decodedText: string) => {
+              if (firedRef.current) return;
+              firedRef.current = true;
+              const code = decodedText.trim();
+              safeStop().finally(() => {
+                onDetected(code);
+              });
+            },
+            () => {
+              /* per-frame miss, ignore */
+            }
+          );
+        } catch {
+          // Retry with the simplest possible config if the advanced
+          // constraints above weren't supported by this browser/device.
+          await scanner.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: { width: 280, height: 150 } },
+            (decodedText: string) => {
+              if (firedRef.current) return;
+              firedRef.current = true;
+              const code = decodedText.trim();
+              safeStop().finally(() => {
+                onDetected(code);
+              });
+            },
+            () => {}
+          );
+        }
 
         runningRef.current = true;
         if (!cancelled) setStarting(false);
@@ -126,21 +187,30 @@ export function CameraScanner({ onDetected, onClose }: Props) {
   }, [onDetected]);
 
   return (
-    <div className="fixed inset-0 z-[100] overflow-hidden bg-black">
-      {/* Full-bleed camera feed */}
+    <div
+      className="fixed inset-0 z-[100] overflow-hidden bg-black"
+      style={{ height: "100dvh", width: "100vw" }}
+    >
+      {/* Full-bleed camera feed -- object-fit: cover so there's never a
+          letterboxed black strip at the bottom */}
       <div
         id={containerId}
-        className="absolute inset-0 h-full w-full [&_video]:!h-full [&_video]:!w-full [&_video]:!object-cover"
+        className="absolute inset-0 h-full w-full overflow-hidden [&_video]:!absolute [&_video]:!inset-0 [&_video]:!h-full [&_video]:!w-full [&_video]:!object-cover"
       />
 
-      {/* Floating words — clipped so they never render inside the scan-frame rectangle,
-          keeping that area perfectly clear/transparent at all times */}
+      {/* Floating words -- rise from below the scan frame and smoothly fade
+          out as they cross into the frame's vertical band, so the frame
+          itself always stays visually clear. The fade is done with a mask
+          on the whole layer (not clip-path) so it's a soft transition
+          rather than a hard cut. */}
       {!starting && !error ? (
         <div
           className="pointer-events-none absolute inset-0 z-[1] overflow-hidden"
           style={{
-            clipPath:
-              "polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 66%, 8% 34%, 92% 34%, 92% 66%, 8% 66%, 8% 34%, 0 34%)",
+            WebkitMaskImage:
+              "linear-gradient(to bottom, transparent 0%, transparent 58%, black 70%, black 100%)",
+            maskImage:
+              "linear-gradient(to bottom, transparent 0%, transparent 58%, black 70%, black 100%)",
           }}
         >
           {FLOATING_WORDS.map((word, i) => (
@@ -151,7 +221,7 @@ export function CameraScanner({ onDetected, onClose }: Props) {
                 left: `${(i * 23 + 5) % 78}%`,
                 bottom: `${-10 - (i % 6) * 8}%`,
                 fontSize: `${12 + (i % 4) * 4}px`,
-                color: "rgba(230, 180, 70, 0.6)",
+                color: "rgba(230, 180, 70, 0.75)",
                 textShadow: "0 1px 3px rgba(0,0,0,0.5)",
                 animation: `mdc-float-up ${11 + (i % 5) * 2}s linear infinite`,
                 animationDelay: `${i * 1.1}s`,
@@ -167,8 +237,7 @@ export function CameraScanner({ onDetected, onClose }: Props) {
         @keyframes mdc-float-up {
           0% { transform: translateY(0); opacity: 0; }
           8% { opacity: 1; }
-          85% { opacity: 1; }
-          100% { transform: translateY(-115vh); opacity: 0; }
+          100% { transform: translateY(-115vh); opacity: 1; }
         }
       `}</style>
 
@@ -182,7 +251,7 @@ export function CameraScanner({ onDetected, onClose }: Props) {
         }}
       />
 
-      {/* Scan frame corners — drawn above everything, frame interior has no overlay */}
+      {/* Scan frame corners -- drawn above everything, frame interior has no overlay */}
       <div
         className="pointer-events-none absolute left-1/2 top-1/2 z-[2] -translate-x-1/2 -translate-y-1/2"
         style={{ width: "84%", maxWidth: "420px", height: "32%" }}
