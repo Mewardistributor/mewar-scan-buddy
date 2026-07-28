@@ -229,7 +229,10 @@ function FinalReport() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-medium">{p.product_name}</p>
-                  <p className="font-mono text-xs text-muted-foreground">{p.barcode}</p>
+                  {p.barcode ? (
+                    <p className="font-mono text-xs text-muted-foreground">{p.barcode}</p>
+                  ) : null}
+
                 </div>
                 <StatusBadge status={p.status} />
               </div>
