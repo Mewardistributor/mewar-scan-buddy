@@ -53,7 +53,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
   const [manualQuery, setManualQuery] = useState("");
   const [noMatch, setNoMatch] = useState(false);
 
-
   useEffect(() => {
     const original = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -66,11 +65,49 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
     if (phase !== "camera") return;
     let cancelled = false;
 
+    async function pickBackCameraId(): Promise<string | null> {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cams = devices.filter((d) => d.kind === "videoinput");
+        if (!cams.length) return null;
+        const back = cams.filter((c) => /back|rear|environment/i.test(c.label));
+        const pool = back.length ? back : cams;
+        const preferred = pool.find((c) => /wide|main/i.test(c.label) && !/tele/i.test(c.label));
+        const avoidTele = pool.find((c) => !/tele|zoom/i.test(c.label));
+        return (preferred || avoidTele || pool[0]).deviceId || null;
+      } catch {
+        return null;
+      }
+    }
+
     async function startCamera() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 960 } },
-        });
+        const backId = await pickBackCameraId();
+        const baseConstraints: MediaStreamConstraints = {
+          video: backId
+            ? {
+                deviceId: { exact: backId },
+                width: { ideal: 1280 },
+                height: { ideal: 960 },
+                advanced: [{ zoom: 1 } as any],
+              }
+            : {
+                facingMode: { ideal: "environment" },
+                width: { ideal: 1280 },
+                height: { ideal: 960 },
+                advanced: [{ zoom: 1 } as any],
+              },
+        };
+
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(baseConstraints);
+        } catch {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 960 } },
+          });
+        }
+
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
           return;
@@ -162,7 +199,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
         normalize(p.product_name ?? "").includes(normalize(manualQuery))
       ).slice(0, 20)
     : [];
-
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-black">
