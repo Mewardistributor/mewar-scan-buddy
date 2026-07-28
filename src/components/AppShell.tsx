@@ -4,33 +4,28 @@ import { useAuth } from "@/lib/auth";
 import { Header } from "@/components/Header";
 import { Login } from "@/components/Login";
 import { Splash } from "@/components/Splash";
+import WarehouseMascot from "@/components/WarehouseMascot";
 
 let splashShown = false;
-
 function splashAlreadyShown() {
   if (splashShown) return true;
   if (typeof window === "undefined") return false;
   return window.sessionStorage.getItem("mdc_splash_shown") === "1";
 }
-
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, ready } = useAuth();
   const [splashDone, setSplashDone] = useState(splashAlreadyShown);
-
-
   if (!splashDone) {
     return (
       <Splash
         onDone={() => {
           splashShown = true;
           window.sessionStorage.setItem("mdc_splash_shown", "1");
-
           setSplashDone(true);
         }}
       />
     );
   }
-
   if (!ready) {
     return (
       <div className="grid min-h-[100dvh] place-items-center bg-background">
@@ -38,19 +33,17 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
     );
   }
-
   if (!user) return <Login />;
-
   return (
     <div className="flex min-h-[100dvh] flex-col bg-[image:var(--gradient-surface)]">
       <Header />
       <main key={typeof window === "undefined" ? "ssr" : window.location.pathname} className="mx-auto w-full max-w-6xl flex-1 animate-fade-up px-4 py-6 pb-20">
         {children}
       </main>
+      <WarehouseMascot />
     </div>
   );
 }
-
 export function Spinner({ label }: { label?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
@@ -59,7 +52,6 @@ export function Spinner({ label }: { label?: string }) {
     </div>
   );
 }
-
 export function EmptyState({
   icon,
   title,
