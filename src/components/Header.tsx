@@ -1,17 +1,16 @@
 import { Link } from "@tanstack/react-router";
-import { LogOut, PackageCheck } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
 export function Header() {
   const { user, logout } = useAuth();
-
   return (
     <header className="sticky top-0 z-40 border-b border-border/70 bg-[image:var(--gradient-brand)] text-primary-foreground shadow-[var(--shadow-brand)]">
       <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-3 px-4">
         <Link to="/" className="flex min-w-0 items-center gap-3">
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[image:var(--gradient-gold)] text-accent-foreground shadow-[var(--shadow-gold)]">
-            <PackageCheck className="h-5 w-5" />
+          <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-primary-foreground shadow-[var(--shadow-gold)]">
+            <img src="/logo.jpg" alt="MDC Logo" className="h-full w-full object-cover" />
           </span>
           <span className="min-w-0">
             <span className="block truncate font-display text-base font-semibold leading-tight sm:text-lg">
@@ -22,7 +21,6 @@ export function Header() {
             </span>
           </span>
         </Link>
-
         {user ? (
           <div className="flex items-center gap-2">
             <span className="hidden text-right text-xs leading-tight sm:block">
