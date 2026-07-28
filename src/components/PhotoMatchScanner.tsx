@@ -90,13 +90,20 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
 
     async function startCamera() {
       try {
+        // Default camera (index 0): let the browser pick its own default
+        // back camera via facingMode, same as the barcode scanner does.
+        // This avoids accidentally selecting a telephoto/zoom lens, which
+        // happens on some phones when we pick a device by enumeration
+        // order instead of letting the browser choose.
         let cams = backCameras;
         if (cams.length === 0) {
           cams = await discoverBackCameras();
           if (!cancelled) setBackCameras(cams);
         }
 
-        const target = cams[cameraIndex] ?? cams[0];
+        // Only use a specific deviceId once the user has explicitly
+        // switched cameras (cameraIndex > 0).
+        const target = cameraIndex > 0 ? cams[cameraIndex] : undefined;
         const baseConstraints: MediaStreamConstraints = {
           video: target
             ? { deviceId: { exact: target.deviceId }, width: { ideal: 1280 }, height: { ideal: 960 } }
