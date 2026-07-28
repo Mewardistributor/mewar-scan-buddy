@@ -35,14 +35,23 @@ const VAN_THRESHOLD = 0.42; // free-ratio above this => van mode
 const RECALC_DEBOUNCE = 250;
 const TICK_MS = 45;
 
-export default function WarehouseMascot() {
+export default function WarehouseMascot({
+  showIntro = true,
+  noIntroPaths = ["/scan/", "/report/"],
+}) {
+  const getPath = () => (typeof window !== "undefined" ? window.location.pathname : "");
+  const [pathname, setPathname] = useState(getPath);
+
+  const pathBlocksIntro = noIntroPaths.some((p) => pathname.includes(p));
+  const effectiveShowIntro = showIntro && !pathBlocksIntro;
+
   const [pos, setPos] = useState({ x: 60, y: 60 });
   const [angle, setAngle] = useState(0); // car heading, degrees
   const [mode, setMode] = useState("van");
   const [throwing, setThrowing] = useState(false);
-  const [intro, setIntro] = useState(true);
-  const [warehouseOpacity, setWarehouseOpacity] = useState(1);
-  const [charVisible, setCharVisible] = useState(false);
+  const [intro, setIntro] = useState(effectiveShowIntro);
+  const [warehouseOpacity, setWarehouseOpacity] = useState(effectiveShowIntro ? 1 : 0);
+  const [charVisible, setCharVisible] = useState(!effectiveShowIntro);
   const [smokePuffs, setSmokePuffs] = useState([]);
 
   const freeGridRef = useRef([]); // cells avoiding data-mascot-avoid (van uses this)
@@ -141,9 +150,13 @@ export default function WarehouseMascot() {
 
   // Recalc immediately on client-side route changes (pushState/popstate),
   // so switching pages triggers an instant re-check instead of waiting on
-  // the debounce/mutation observer alone.
+  // the debounce/mutation observer alone. Also updates pathname so the
+  // van/warehouse-intro logic knows which page it's now on.
   useEffect(() => {
-    const handleNav = () => recalcSpace();
+    const handleNav = () => {
+      recalcSpace();
+      setPathname(getPath());
+    };
     window.addEventListener("popstate", handleNav);
     const origPush = history.pushState;
     history.pushState = function (...args) {
@@ -156,11 +169,26 @@ export default function WarehouseMascot() {
     };
   }, [recalcSpace]);
 
-  // ---- Intro: warehouse spawns, van drives out ---------------------------
+  // ---- Intro: warehouse spawns, van drives out ----------------------------
+  // Skipped whenever effectiveShowIntro is false -- either because the
+  // caller passed showIntro={false}, or the current path matches
+  // noIntroPaths (by default: /scan/ and /report/).
   useEffect(() => {
+    if (!effectiveShowIntro) {
+      // start moving immediately, no warehouse, no fade-in delay
+      setPos({ x: 80, y: 120 });
+      setCharVisible(true);
+      setWarehouseOpacity(0);
+      setIntro(false);
+      return;
+    }
+
     const anchor = { x: 70, y: window.innerHeight - 90 };
     warehouseAnchor.current = anchor;
     setPos(anchor);
+    setWarehouseOpacity(1);
+    setCharVisible(false);
+    setIntro(true);
 
     const t1 = setTimeout(() => setCharVisible(true), 700);
     const t2 = setTimeout(() => setWarehouseOpacity(0), 1500);
@@ -170,7 +198,7 @@ export default function WarehouseMascot() {
       clearTimeout(t2);
       clearTimeout(t3);
     };
-  }, []);
+  }, [effectiveShowIntro]);
 
   // ---- Movement loop -------------------------------------------------------
   useEffect(() => {
