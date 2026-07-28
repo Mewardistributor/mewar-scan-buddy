@@ -213,11 +213,16 @@ function AddSummary() {
 
       <section className="surface-card space-y-4 p-5">
         <div>
-          <h1 className="font-display text-xl font-semibold">New Dispatch Summary</h1>
+          <h1 className="font-display text-xl font-semibold">
+            {noBarcode ? "New Dispatch Summary (Without Scanner)" : "New Dispatch Summary"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Name this dispatch, then upload the MARG daily dispatch Excel sheet.
+            {noBarcode
+              ? "Name this dispatch, then upload the MARG dispatch Excel sheet that has no barcode column. Verification will use Match by Photo."
+              : "Name this dispatch, then upload the MARG daily dispatch Excel sheet."}
           </p>
         </div>
+
         <div className="space-y-2">
           <Label htmlFor="title">Summary title</Label>
           <Input
