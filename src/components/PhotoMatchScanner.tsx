@@ -10,9 +10,6 @@ type Props = {
   onClose: () => void;
 };
 
-// Normalize text: lowercase, strip punctuation, collapse whitespace.
-// Works fine on both English and Hindi (Devanagari) text since we only
-// strip ASCII punctuation and collapse spaces.
 function normalize(text: string) {
   return text
     .toLowerCase()
@@ -21,7 +18,6 @@ function normalize(text: string) {
     .trim();
 }
 
-// Simple word-overlap similarity score between OCR text and a product name.
 function scoreMatch(ocrText: string, productName: string) {
   const ocrWords = new Set(normalize(ocrText).split(" ").filter((w) => w.length > 1));
   const nameWords = normalize(productName).split(" ").filter((w) => w.length > 1);
@@ -30,7 +26,6 @@ function scoreMatch(ocrText: string, productName: string) {
   for (const w of nameWords) {
     if (ocrWords.has(w)) hits++;
     else {
-      // partial/substring credit for close variants (e.g. "toothpaste" vs "tooth")
       for (const ow of ocrWords) {
         if (ow.length > 3 && (ow.includes(w) || w.includes(ow))) {
           hits += 0.5;
@@ -85,18 +80,8 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
         const backId = await pickBackCameraId();
         const baseConstraints: MediaStreamConstraints = {
           video: backId
-            ? {
-                deviceId: { exact: backId },
-                width: { ideal: 1280 },
-                height: { ideal: 960 },
-                advanced: [{ zoom: 1 } as any],
-              }
-            : {
-                facingMode: { ideal: "environment" },
-                width: { ideal: 1280 },
-                height: { ideal: 960 },
-                advanced: [{ zoom: 1 } as any],
-              },
+            ? { deviceId: { exact: backId }, width: { ideal: 1280 }, height: { ideal: 960 } }
+            : { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 960 } },
         };
 
         let stream: MediaStream;
@@ -112,6 +97,21 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
+
+        // Force zoom to the lowest supported level (widest view) once the
+        // track is live -- many phones ignore zoom passed at getUserMedia
+        // time but honor it via applyConstraints on the running track.
+        const [track] = stream.getVideoTracks();
+        try {
+          const caps: any = track.getCapabilities ? track.getCapabilities() : {};
+          if (caps && caps.zoom) {
+            const minZoom = caps.zoom.min ?? 1;
+            await (track as any).applyConstraints({ advanced: [{ zoom: minZoom }] });
+          }
+        } catch {
+          /* zoom control not supported on this device/browser, ignore */
+        }
+
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -204,7 +204,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
     <div className="fixed inset-0 z-[100] flex flex-col bg-black">
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <p className="font-display text-sm font-semibold text-white">Match by Photo</p>
         <button
