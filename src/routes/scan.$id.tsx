@@ -101,15 +101,19 @@ function ScanScreen() {
   }, [data]);
 
   const counts = useMemo(() => {
-    const c = { match: 0, short: 0, excess: 0, pending: 0 };
+    const c: Record<string, number> = { match: 0, short: 0, excess: 0, pending: 0 };
     for (const p of products) c[p.status] = (c[p.status] ?? 0) + 1;
-    return c;
+    return c as { match: number; short: number; excess: number; pending: number };
   }, [products]);
   const total = products.length;
   const completed = total - counts.pending;
   const progress = total ? Math.round((completed / total) * 100) : 0;
 
+  // Summaries created from a sheet without a barcode column are photo-match only.
+  const photoOnly = products.length > 0 && products.every((p) => !(p.barcode ?? "").trim());
+
   const modalOpen = camera || photoMatch || !!active || !!readOnly || confirmDone;
+
 
   const handleBarcode = useCallback(
     (raw: string) => {
