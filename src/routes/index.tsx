@@ -122,11 +122,24 @@ function Dashboard() {
             {(user?.role === "admin" ? reports.length : shared.length)} completed
           </p>
         </div>
-        <Button asChild variant="gold" size="lg" className="w-full sm:w-auto">
-          <Link to="/add">
-            <Plus className="h-5 w-5" /> Add Summary
-          </Link>
-        </Button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto">
+          <Button asChild variant="gold" size="lg" className="w-full sm:w-auto">
+            <Link to="/add">
+              <Plus className="h-5 w-5" /> Add Summary
+            </Link>
+          </Button>
+          <Button
+            asChild
+            variant="outline"
+            size="lg"
+            className="w-full border-primary-foreground/40 bg-transparent text-primary-foreground hover:bg-primary-foreground/10 sm:w-auto"
+          >
+            <Link to="/add" search={{ mode: "photo" as const }}>
+              <ImagePlus className="h-5 w-5" /> Summary Without Scanner
+            </Link>
+          </Button>
+        </div>
+
       </section>
 
       <Tabs defaultValue="all">
