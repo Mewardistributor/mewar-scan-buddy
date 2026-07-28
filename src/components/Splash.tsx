@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
-import { PackageCheck } from "lucide-react";
 
 export function Splash({ onDone }: { onDone: () => void }) {
   const [leaving, setLeaving] = useState(false);
-
   useEffect(() => {
     const t1 = setTimeout(() => setLeaving(true), 1500);
     const t2 = setTimeout(onDone, 2100);
@@ -12,7 +10,6 @@ export function Splash({ onDone }: { onDone: () => void }) {
       clearTimeout(t2);
     };
   }, [onDone]);
-
   return (
     <div
       className={`fixed inset-0 z-[100] grid place-items-center bg-[image:var(--gradient-brand)] transition-opacity duration-500 ${
@@ -20,8 +17,8 @@ export function Splash({ onDone }: { onDone: () => void }) {
       }`}
     >
       <div className="flex flex-col items-center gap-5 px-6 text-center text-primary-foreground">
-        <span className="grid h-20 w-20 animate-pop place-items-center rounded-3xl bg-[image:var(--gradient-gold)] text-accent-foreground shadow-[var(--shadow-gold)]">
-          <PackageCheck className="h-10 w-10" />
+        <span className="grid h-20 w-20 animate-pop place-items-center overflow-hidden rounded-3xl bg-primary-foreground shadow-[var(--shadow-gold)]">
+          <img src="/logo.jpg" alt="MDC Logo" className="h-full w-full object-cover" />
         </span>
         <div className="animate-fade-up">
           <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
