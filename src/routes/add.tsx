@@ -79,7 +79,7 @@ function AddSummary() {
   async function onFile(file: File) {
     setParsing(true);
     try {
-      const parsed = await parseDispatchExcel(file);
+      const parsed = await parseDispatchExcel(file, { noBarcode });
       if (parsed.length === 0) {
         toast.error("No product rows found in this file");
       } else {
