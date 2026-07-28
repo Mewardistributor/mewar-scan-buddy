@@ -266,7 +266,13 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
 
       {phase === "manual" ? (
         <div className="flex flex-1 flex-col overflow-hidden bg-background">
-          <div className="border-b border-border p-4">
+          <div className="space-y-3 border-b border-border p-4">
+            {noMatch ? (
+              <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                No match found — search manually below.
+              </p>
+            ) : null}
+
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
