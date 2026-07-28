@@ -28,18 +28,52 @@ const num = (v: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export async function parseDispatchExcel(file: File): Promise<ParsedRow[]> {
+export async function parseDispatchExcel(
+  file: File,
+  opts?: { noBarcode?: boolean },
+): Promise<ParsedRow[]> {
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: "array" });
   const sheet = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, blankrows: false, defval: "" });
+  const clean = (c: unknown) => String(c).trim().toUpperCase().replace(/\./g, "");
 
-  let headerIdx = rows.findIndex((r) =>
-    r.some((c) => String(c).trim().toUpperCase().replace(/\./g, "") === "BARCODE"),
-  );
+  if (opts?.noBarcode) {
+    // MARG sheet without a barcode column: SN | PRODUCT NAME | M.R.P. | QTY | PCS | VALUE
+    let headerIdx = rows.findIndex((r) => clean(r?.[0]).replace(/\s/g, "") === "SN");
+    if (headerIdx === -1) headerIdx = 6;
+    const header = (rows[headerIdx] ?? []).map(clean);
+    const findCol = (...names: string[]) =>
+      header.findIndex((h) => names.some((n) => h.replace(/\s/g, "") === n));
+    const iMrp = findCol("MRP");
+    const iBox = findCol("QTY", "BOX");
+    const iPcs = findCol("PCS", "PIECES");
+
+    const out: ParsedRow[] = [];
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const r = rows[i] ?? [];
+      const name = String(r[1] ?? "").trim();
+      if (!name) continue;
+      const joined = r.map((c) => String(c).trim()).join(" ").toUpperCase();
+      if (/ITEMS?\s+QTY/.test(joined) || /^TOTAL/.test(joined)) continue;
+      if (!String(r[0] ?? "").trim()) continue;
+      out.push({
+        key: `row-${i}`,
+        barcode: "",
+        product_name: name,
+        required_mrp: num(iMrp >= 0 ? r[iMrp] : 0),
+        required_box: num(iBox >= 0 ? r[iBox] : 0),
+        required_pcs: num(iPcs >= 0 ? r[iPcs] : 0),
+        change_note: null,
+      });
+    }
+    return out;
+  }
+
+  let headerIdx = rows.findIndex((r) => r.some((c) => clean(c) === "BARCODE"));
   if (headerIdx === -1) headerIdx = 5;
 
-  const header = (rows[headerIdx] ?? []).map((c) => String(c).trim().toUpperCase().replace(/\./g, ""));
+  const header = (rows[headerIdx] ?? []).map(clean);
   const col = (...names: string[]) => header.findIndex((h) => names.includes(h));
   const iBarcode = col("BARCODE");
   const iName = col("PRODUCT NAME", "PRODUCTNAME", "ITEM NAME");
@@ -67,6 +101,7 @@ export async function parseDispatchExcel(file: File): Promise<ParsedRow[]> {
   }
   return out;
 }
+
 
 const safe = (s: string) => s.replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "") || "report";
 
