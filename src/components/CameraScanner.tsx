@@ -194,7 +194,10 @@ export function CameraScanner({ onDetected, onClose }: Props) {
       {/* Full-bleed camera feed -- object-fit: cover so there's never a
           letterboxed black strip at the bottom, and the library's own
           inner wrapper is forced full-size too so no white gutter shows
-          on the sides. */}
+          on the sides. Only the <video> is force-resized -- the
+          library's internal <canvas> is left alone so its own pixel
+          calculations (used to position the qrbox shaded-region) don't
+          get thrown off. */}
       <div
         id={containerId}
         className="absolute inset-0 h-full w-full overflow-hidden bg-black [&_video]:!absolute [&_video]:!inset-0 [&_video]:!h-full [&_video]:!w-full [&_video]:!object-cover"
@@ -208,8 +211,7 @@ export function CameraScanner({ onDetected, onClose }: Props) {
           height: 100% !important;
           background: #000 !important;
         }
-        #${containerId} video,
-        #${containerId} canvas {
+        #${containerId} video {
           position: absolute !important;
           inset: 0 !important;
           top: 0 !important;
@@ -217,6 +219,14 @@ export function CameraScanner({ onDetected, onClose }: Props) {
           width: 100% !important;
           height: 100% !important;
           object-fit: cover !important;
+        }
+        /* html5-qrcode draws its own qrbox shaded-region + white corner
+           brackets in a div with this fixed id. We already draw our own
+           teal corner overlay below, so hide the library's default UI
+           entirely instead of letting the two clash (that clash was the
+           cause of the black patches + duplicate brackets). */
+        #qr-shaded-region {
+          display: none !important;
         }
       `}</style>
 
