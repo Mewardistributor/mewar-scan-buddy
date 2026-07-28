@@ -54,7 +54,10 @@ let manualSeq = 0;
 function AddSummary() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { mode } = Route.useSearch();
+  const noBarcode = mode === "photo";
   const fileRef = useRef<HTMLInputElement>(null);
+
   const [title, setTitle] = useState("");
   const [rows, setRows] = useState<ParsedRow[] | null>(null);
   const [parsing, setParsing] = useState(false);
