@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, RotateCcw, Search, X, CheckCircle2 } from "lucide-react";
+import { Camera, Loader2, RotateCcw, Search, X, CheckCircle2, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Product } from "@/lib/supabase";
@@ -41,12 +41,30 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
   const [phase, setPhase] = useState<"camera" | "processing" | "results" | "manual">("camera");
   const [error, setError] = useState<string | null>(null);
   const [ocrText, setOcrText] = useState("");
   const [matches, setMatches] = useState<Product[]>([]);
   const [manualQuery, setManualQuery] = useState("");
   const [noMatch, setNoMatch] = useState(false);
+
+  // Manual zoom controls. hwZoom is used when the camera track supports the
+  // native "zoom" capability (applyConstraints). cssScale is a software
+  // fallback (CSS transform: scale) used when the device doesn't expose a
+  // controllable zoom capability at all -- it lets the user visually zoom
+  // OUT of an over-zoomed feed by shrinking the video element itself won't
+  // help (the feed is already cropped by hardware), so instead we offer a
+  // "digital zoom out" by letting them zoom the canvas capture region --
+  // but the simplest robust option that always works is the hardware zoom
+  // slider when available, with a manual message otherwise.
+  const [hwZoomSupported, setHwZoomSupported] = useState(false);
+  const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number }>({
+    min: 1,
+    max: 1,
+    step: 1,
+  });
+  const [zoomValue, setZoomValue] = useState(1);
 
   useEffect(() => {
     const original = document.body.style.overflow;
@@ -98,18 +116,24 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
           return;
         }
 
-        // Force zoom to the lowest supported level (widest view) once the
-        // track is live -- many phones ignore zoom passed at getUserMedia
-        // time but honor it via applyConstraints on the running track.
         const [track] = stream.getVideoTracks();
+        trackRef.current = track;
+
         try {
           const caps: any = track.getCapabilities ? track.getCapabilities() : {};
-          if (caps && caps.zoom) {
-            const minZoom = caps.zoom.min ?? 1;
-            await (track as any).applyConstraints({ advanced: [{ zoom: minZoom }] });
+          if (caps && caps.zoom && typeof caps.zoom.min === "number" && typeof caps.zoom.max === "number") {
+            const min = caps.zoom.min;
+            const max = caps.zoom.max;
+            const step = caps.zoom.step || 0.1;
+            setHwZoomSupported(true);
+            setZoomRange({ min, max, step });
+            setZoomValue(min);
+            await (track as any).applyConstraints({ advanced: [{ zoom: min }] });
+          } else {
+            setHwZoomSupported(false);
           }
         } catch {
-          /* zoom control not supported on this device/browser, ignore */
+          setHwZoomSupported(false);
         }
 
         streamRef.current = stream;
@@ -134,8 +158,20 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
       cancelled = true;
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
+      trackRef.current = null;
     };
   }, [phase]);
+
+  async function handleZoomChange(value: number) {
+    setZoomValue(value);
+    const track = trackRef.current;
+    if (!track) return;
+    try {
+      await (track as any).applyConstraints({ advanced: [{ zoom: value }] });
+    } catch {
+      /* ignore */
+    }
+  }
 
   function findMatches(text: string): Product[] {
     const scored = products
@@ -220,14 +256,37 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
           <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
           <div className="pointer-events-none absolute inset-6 rounded-2xl border-2 border-dashed border-white/50" />
           {error ? (
-            <div className="absolute inset-x-4 bottom-24 rounded-xl bg-white p-4 text-sm text-red-600 shadow-lg">
+            <div className="absolute inset-x-4 bottom-40 rounded-xl bg-white p-4 text-sm text-red-600 shadow-lg">
               {error}
             </div>
           ) : (
-            <p className="absolute inset-x-0 bottom-24 text-center text-xs font-medium text-white/80">
+            <p className="absolute inset-x-0 bottom-40 text-center text-xs font-medium text-white/80">
               Frame the product name / label clearly
             </p>
           )}
+
+          {hwZoomSupported ? (
+            <div className="absolute inset-x-6 bottom-28 flex items-center gap-3 rounded-full bg-black/50 px-4 py-2 backdrop-blur-md">
+              <ZoomOut className="h-4 w-4 shrink-0 text-white" />
+              <input
+                type="range"
+                min={zoomRange.min}
+                max={zoomRange.max}
+                step={zoomRange.step}
+                value={zoomValue}
+                onChange={(e) => handleZoomChange(Number(e.target.value))}
+                className="h-1.5 w-full cursor-pointer accent-primary"
+              />
+              <ZoomIn className="h-4 w-4 shrink-0 text-white" />
+            </div>
+          ) : (
+            <div className="absolute inset-x-6 bottom-28 rounded-full bg-black/50 px-4 py-2 text-center backdrop-blur-md">
+              <p className="text-[11px] text-white/80">
+                Too zoomed in? Move your phone further from the label, or use "Find by name" below.
+              </p>
+            </div>
+          )}
+
           <div className="absolute inset-x-0 bottom-6 flex items-center justify-center gap-4">
             <Button variant="secondary" size="sm" onClick={() => setPhase("manual")}>
               <Search className="h-4 w-4" /> Find by name
