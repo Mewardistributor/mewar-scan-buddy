@@ -57,6 +57,10 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
     step: 1,
   });
   const [zoomValue, setZoomValue] = useState(1);
+  const [visualScale, setVisualScale] = useState(1);
+
+  const [backCameras, setBackCameras] = useState<MediaDeviceInfo[]>([]);
+  const [cameraIndex, setCameraIndex] = useState(0);
 
   useEffect(() => {
     const original = document.body.style.overflow;
@@ -70,27 +74,41 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
     if (phase !== "camera") return;
     let cancelled = false;
 
-    async function pickBackCameraId(): Promise<string | null> {
+    async function discoverBackCameras(): Promise<MediaDeviceInfo[]> {
       try {
+        try {
+          const probe = await navigator.mediaDevices.getUserMedia({ video: true });
+          probe.getTracks().forEach((t) => t.stop());
+        } catch {
+          /* ignore */
+        }
         const devices = await navigator.mediaDevices.enumerateDevices();
         const cams = devices.filter((d) => d.kind === "videoinput");
-        if (!cams.length) return null;
-        const back = cams.filter((c) => /back|rear|environment/i.test(c.label));
-        const pool = back.length ? back : cams;
-        const preferred = pool.find((c) => /wide|main/i.test(c.label) && !/tele/i.test(c.label));
-        const avoidTele = pool.find((c) => !/tele|zoom/i.test(c.label));
-        return (preferred || avoidTele || pool[0]).deviceId || null;
+        if (!cams.length) return [];
+        const pool = cams;
+        const sorted = [...pool].sort((a, b) => {
+          const aWide = /wide|main/i.test(a.label) && !/tele/i.test(a.label) ? 0 : 1;
+          const bWide = /wide|main/i.test(b.label) && !/tele/i.test(b.label) ? 0 : 1;
+          return aWide - bWide;
+        });
+        return sorted;
       } catch {
-        return null;
+        return [];
       }
     }
 
     async function startCamera() {
       try {
-        const backId = await pickBackCameraId();
+        let cams = backCameras;
+        if (cams.length === 0) {
+          cams = await discoverBackCameras();
+          if (!cancelled) setBackCameras(cams);
+        }
+
+        const target = cams[cameraIndex] ?? cams[0];
         const baseConstraints: MediaStreamConstraints = {
-          video: backId
-            ? { deviceId: { exact: backId }, width: { ideal: 1280 }, height: { ideal: 960 } }
+          video: target
+            ? { deviceId: { exact: target.deviceId }, width: { ideal: 1280 }, height: { ideal: 960 } }
             : { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 960 } },
         };
 
@@ -117,16 +135,18 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
             const min = caps.zoom.min;
             const max = caps.zoom.max;
             const step = caps.zoom.step || 0.1;
-            setHwZoomSupported(true);
             setZoomRange({ min, max, step });
             setZoomValue(min);
             await (track as any).applyConstraints({ advanced: [{ zoom: min }] });
           } else {
-            setHwZoomSupported(false);
+            setZoomRange({ min: 1, max: 8, step: 0.1 });
+            setZoomValue(1);
           }
         } catch {
-          setHwZoomSupported(false);
+          setZoomRange({ min: 1, max: 8, step: 0.1 });
+          setZoomValue(1);
         }
+        setHwZoomSupported(true);
 
         streamRef.current = stream;
         if (videoRef.current) {
@@ -152,7 +172,12 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
       streamRef.current = null;
       trackRef.current = null;
     };
-  }, [phase]);
+  }, [phase, cameraIndex]);
+
+  function switchCamera() {
+    if (backCameras.length < 2) return;
+    setCameraIndex((i) => (i + 1) % backCameras.length);
+  }
 
   async function handleZoomChange(value: number) {
     setZoomValue(value);
@@ -179,7 +204,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
     trackRef.current = null;
   }
 
-  // Shared OCR pipeline used by both "take photo" and "choose from gallery".
   async function processImage(dataUrl: string) {
     stopStream();
     setPhase("processing");
@@ -278,7 +302,17 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
 
       {phase === "camera" ? (
         <div className="relative flex-1 overflow-hidden bg-black">
-          <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            className="h-full w-full object-cover"
+            style={{
+              transform: `scale(${visualScale})`,
+              transformOrigin: "center center",
+              transition: "transform 0.1s ease-out",
+            }}
+          />
           <div className="pointer-events-none absolute inset-6 rounded-2xl border-2 border-dashed border-white/50" />
           {error ? (
             <div className="absolute inset-x-4 bottom-40 rounded-xl bg-white p-4 text-sm text-red-600 shadow-lg">
@@ -290,27 +324,32 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
             </p>
           )}
 
-          {hwZoomSupported ? (
-            <div className="absolute inset-x-6 bottom-28 flex items-center gap-3 rounded-full bg-black/50 px-4 py-2 backdrop-blur-md">
-              <ZoomOut className="h-4 w-4 shrink-0 text-white" />
-              <input
-                type="range"
-                min={zoomRange.min}
-                max={zoomRange.max}
-                step={zoomRange.step}
-                value={zoomValue}
-                onChange={(e) => handleZoomChange(Number(e.target.value))}
-                className="h-1.5 w-full cursor-pointer accent-primary"
-              />
-              <ZoomIn className="h-4 w-4 shrink-0 text-white" />
-            </div>
-          ) : (
-            <div className="absolute inset-x-6 bottom-28 rounded-full bg-black/50 px-4 py-2 text-center backdrop-blur-md">
-              <p className="text-[11px] text-white/80">
-                Too zoomed in? Move your phone further from the label, or pick a photo from gallery below.
-              </p>
-            </div>
-          )}
+          <div className="absolute inset-x-6 bottom-28 flex items-center gap-3 rounded-full bg-black/50 px-4 py-2 backdrop-blur-md">
+            <ZoomOut className="h-4 w-4 shrink-0 text-white" />
+            <input
+              type="range"
+              min={0.4}
+              max={1}
+              step={0.02}
+              value={visualScale}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setVisualScale(v);
+                handleZoomChange(zoomRange.min);
+              }}
+              className="h-1.5 w-full cursor-pointer accent-primary"
+            />
+            <ZoomIn className="h-4 w-4 shrink-0 text-white" />
+          </div>
+
+          {backCameras.length > 1 ? (
+            <button
+              onClick={switchCamera}
+              className="absolute right-4 top-16 z-10 rounded-full bg-black/50 px-3 py-2 text-xs font-medium text-white backdrop-blur-md active:scale-90"
+            >
+              Switch Camera ({cameraIndex + 1}/{backCameras.length})
+            </button>
+          ) : null}
 
           <div className="absolute inset-x-0 bottom-6 flex items-center justify-center gap-3">
             <Button variant="secondary" size="sm" onClick={() => setPhase("manual")}>
