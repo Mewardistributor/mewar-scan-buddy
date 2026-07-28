@@ -144,7 +144,7 @@ function ScanScreen() {
 
   // External USB / Bluetooth scanner: rapid keystrokes ending in Enter.
   useEffect(() => {
-    if (modalOpen) return;
+    if (modalOpen || photoOnly) return;
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
