@@ -6,6 +6,19 @@ type Props = {
   onClose: () => void;
 };
 
+const FLOATING_WORDS = [
+  "Mewar",
+  "Distribution",
+  "मेवाड़",
+  "Patanjali",
+  "HUL",
+  "Mamaearth",
+  "वितरण",
+  "Dabur",
+  "Amit",
+  "वेयरहाउस",
+];
+
 export function CameraScanner({ onDetected, onClose }: Props) {
   const containerId = "mdc-camera-reader";
   const scannerRef = useRef<any>(null);
@@ -103,14 +116,43 @@ export function CameraScanner({ onDetected, onClose }: Props) {
   }, [onDetected]);
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black">
+    <div className="fixed inset-0 z-[100] overflow-hidden bg-black">
       {/* Full-bleed camera feed */}
       <div
         id={containerId}
         className="absolute inset-0 [&_video]:!h-full [&_video]:!w-full [&_video]:!object-cover"
       />
 
-      {/* Floating close button, top-right */}
+      {/* Floating drifting words, rising from bottom to top */}
+      {!starting && !error ? (
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          {FLOATING_WORDS.map((word, i) => (
+            <span
+              key={word + i}
+              className="absolute select-none whitespace-nowrap font-display font-semibold text-white/20"
+              style={{
+                left: `${(i * 37) % 90}%`,
+                fontSize: `${12 + (i % 4) * 4}px`,
+                animation: `mdc-float-up ${9 + (i % 5) * 2}s linear infinite`,
+                animationDelay: `${i * 1.3}s`,
+              }}
+            >
+              {word}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <style>{`
+        @keyframes mdc-float-up {
+          0% { transform: translateY(110vh); opacity: 0; }
+          10% { opacity: 1; }
+          90% { opacity: 1; }
+          100% { transform: translateY(-10vh); opacity: 0; }
+        }
+      `}</style>
+
+      {/* Close button */}
       <button
         onClick={onClose}
         aria-label="Close camera"
@@ -119,31 +161,27 @@ export function CameraScanner({ onDetected, onClose }: Props) {
         <X className="h-5 w-5" />
       </button>
 
-      {/* Floating brand badge, top-left */}
-      <div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-full bg-black/50 px-3 py-2 backdrop-blur-md">
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[image:var(--gradient-brand)] font-display text-[10px] font-bold text-white">
-          M
-        </span>
-        <div className="leading-none">
-          <p className="font-display text-[11px] font-semibold text-white">Mewar Distribution</p>
-          <p className="text-[9px] tracking-wide text-white/60">डिस्पैच सत्यापन</p>
-        </div>
+      {/* Center label */}
+      <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full bg-black/50 px-4 py-2 backdrop-blur-md">
+        <p className="font-display text-xs font-semibold tracking-wide text-white/90">
+          Collab with Students
+        </p>
       </div>
 
       {/* Corner-bracket scan frame */}
       {!starting && !error ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="relative h-[32%] w-[84%] max-w-md">
-            <span className="absolute -left-0 -top-0 h-8 w-8 rounded-tl-2xl border-l-4 border-t-4 border-primary" />
-            <span className="absolute -right-0 -top-0 h-8 w-8 rounded-tr-2xl border-r-4 border-t-4 border-primary" />
-            <span className="absolute -left-0 -bottom-0 h-8 w-8 rounded-bl-2xl border-b-4 border-l-4 border-primary" />
-            <span className="absolute -right-0 -bottom-0 h-8 w-8 rounded-br-2xl border-b-4 border-r-4 border-primary" />
+            <span className="absolute left-0 top-0 h-8 w-8 rounded-tl-2xl border-l-4 border-t-4 border-primary" />
+            <span className="absolute right-0 top-0 h-8 w-8 rounded-tr-2xl border-r-4 border-t-4 border-primary" />
+            <span className="absolute bottom-0 left-0 h-8 w-8 rounded-bl-2xl border-b-4 border-l-4 border-primary" />
+            <span className="absolute bottom-0 right-0 h-8 w-8 rounded-br-2xl border-b-4 border-r-4 border-primary" />
             <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 bg-primary/70 shadow-[0_0_12px_2px_rgba(13,92,83,0.8)] animate-pulse" />
           </div>
         </div>
       ) : null}
 
-      {/* Floating hint pill, bottom */}
+      {/* Bottom hint */}
       {!starting && !error ? (
         <div className="absolute inset-x-0 bottom-8 z-10 flex justify-center px-6">
           <div className="rounded-full bg-black/50 px-4 py-2 text-center backdrop-blur-md">
