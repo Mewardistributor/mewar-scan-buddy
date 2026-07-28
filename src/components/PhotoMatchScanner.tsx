@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, RotateCcw, Search, X, CheckCircle2, ZoomIn, ZoomOut } from "lucide-react";
+import { Camera, Image as ImageIcon, Loader2, RotateCcw, Search, X, CheckCircle2, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Product } from "@/lib/supabase";
@@ -42,6 +42,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [phase, setPhase] = useState<"camera" | "processing" | "results" | "manual">("camera");
   const [error, setError] = useState<string | null>(null);
   const [ocrText, setOcrText] = useState("");
@@ -49,15 +50,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
   const [manualQuery, setManualQuery] = useState("");
   const [noMatch, setNoMatch] = useState(false);
 
-  // Manual zoom controls. hwZoom is used when the camera track supports the
-  // native "zoom" capability (applyConstraints). cssScale is a software
-  // fallback (CSS transform: scale) used when the device doesn't expose a
-  // controllable zoom capability at all -- it lets the user visually zoom
-  // OUT of an over-zoomed feed by shrinking the video element itself won't
-  // help (the feed is already cropped by hardware), so instead we offer a
-  // "digital zoom out" by letting them zoom the canvas capture region --
-  // but the simplest robust option that always works is the hardware zoom
-  // slider when available, with a manual message otherwise.
   const [hwZoomSupported, setHwZoomSupported] = useState(false);
   const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number }>({
     min: 1,
@@ -181,25 +173,21 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
     return scored.slice(0, 8).map((s) => s.p);
   }
 
-  async function capture() {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
-
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
+  function stopStream() {
     streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    trackRef.current = null;
+  }
+
+  // Shared OCR pipeline used by both "take photo" and "choose from gallery".
+  async function processImage(dataUrl: string) {
+    stopStream();
     setPhase("processing");
     setError(null);
     setNoMatch(false);
 
     try {
       const { default: Tesseract } = await import("tesseract.js");
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
       const result = await Tesseract.recognize(dataUrl, "eng+hin");
       const text = result.data.text || "";
       setOcrText(text);
@@ -222,6 +210,36 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
     }
   }
 
+  async function capture() {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    await processImage(dataUrl);
+  }
+
+  function openGallery() {
+    fileInputRef.current?.click();
+  }
+
+  function onGalleryFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      processImage(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  }
+
   function retake() {
     setError(null);
     setOcrText("");
@@ -239,6 +257,13 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-black">
       <canvas ref={canvasRef} className="hidden" />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={onGalleryFileChosen}
+      />
 
       <div className="flex items-center justify-between px-4 py-3">
         <p className="font-display text-sm font-semibold text-white">Match by Photo</p>
@@ -282,12 +307,12 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
           ) : (
             <div className="absolute inset-x-6 bottom-28 rounded-full bg-black/50 px-4 py-2 text-center backdrop-blur-md">
               <p className="text-[11px] text-white/80">
-                Too zoomed in? Move your phone further from the label, or use "Find by name" below.
+                Too zoomed in? Move your phone further from the label, or pick a photo from gallery below.
               </p>
             </div>
           )}
 
-          <div className="absolute inset-x-0 bottom-6 flex items-center justify-center gap-4">
+          <div className="absolute inset-x-0 bottom-6 flex items-center justify-center gap-3">
             <Button variant="secondary" size="sm" onClick={() => setPhase("manual")}>
               <Search className="h-4 w-4" /> Find by name
             </Button>
@@ -298,6 +323,9 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
             >
               <span className="h-12 w-12 rounded-full bg-white" />
             </button>
+            <Button variant="secondary" size="sm" onClick={openGallery}>
+              <ImageIcon className="h-4 w-4" /> Gallery
+            </Button>
           </div>
         </div>
       ) : null}
@@ -349,10 +377,13 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
 
           <div className="flex gap-2 border-t border-border p-4">
             <Button variant="outline" className="flex-1" onClick={retake}>
-              <RotateCcw className="h-4 w-4" /> Retake photo
+              <RotateCcw className="h-4 w-4" /> Retake
+            </Button>
+            <Button variant="outline" className="flex-1" onClick={openGallery}>
+              <ImageIcon className="h-4 w-4" /> Gallery
             </Button>
             <Button variant="hero" className="flex-1" onClick={() => setPhase("manual")}>
-              <Search className="h-4 w-4" /> Find by name
+              <Search className="h-4 w-4" /> By name
             </Button>
           </div>
         </div>
@@ -408,9 +439,12 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
               </ul>
             )}
           </div>
-          <div className="border-t border-border p-4">
-            <Button variant="outline" className="w-full" onClick={retake}>
-              <Camera className="h-4 w-4" /> Back to camera
+          <div className="flex gap-2 border-t border-border p-4">
+            <Button variant="outline" className="flex-1" onClick={retake}>
+              <Camera className="h-4 w-4" /> Camera
+            </Button>
+            <Button variant="outline" className="flex-1" onClick={openGallery}>
+              <ImageIcon className="h-4 w-4" /> Gallery
             </Button>
           </div>
         </div>
