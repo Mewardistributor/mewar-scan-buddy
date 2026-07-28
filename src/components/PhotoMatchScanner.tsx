@@ -100,7 +100,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
 
   function findMatches(text: string): Product[] {
     const scored = products
-      .map((p) => ({ p, score: scoreMatch(text, p.product_name) }))
+      .map((p) => ({ p, score: scoreMatch(text, p.product_name ?? "") }))
       .filter((s) => s.score >= 0.34)
       .sort((a, b) => b.score - a.score);
     return scored.slice(0, 8).map((s) => s.p);
@@ -120,6 +120,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     setPhase("processing");
     setError(null);
+    setNoMatch(false);
 
     try {
       const { default: Tesseract } = await import("tesseract.js");
@@ -129,6 +130,15 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
       setOcrText(text);
       const found = findMatches(text);
       setMatches(found);
+      if (found.length === 1) {
+        onSelect(found[0]);
+        return;
+      }
+      if (found.length === 0) {
+        setNoMatch(true);
+        setPhase("manual");
+        return;
+      }
       setPhase("results");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not read the label. Please try again.");
@@ -141,14 +151,16 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
     setError(null);
     setOcrText("");
     setMatches([]);
+    setNoMatch(false);
     setPhase("camera");
   }
 
   const manualResults = manualQuery.trim()
     ? products.filter((p) =>
-        normalize(p.product_name).includes(normalize(manualQuery))
+        normalize(p.product_name ?? "").includes(normalize(manualQuery))
       ).slice(0, 20)
     : [];
+
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-black">
