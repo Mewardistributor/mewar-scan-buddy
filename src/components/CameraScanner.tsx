@@ -192,11 +192,33 @@ export function CameraScanner({ onDetected, onClose }: Props) {
       style={{ height: "100dvh", width: "100vw" }}
     >
       {/* Full-bleed camera feed -- object-fit: cover so there's never a
-          letterboxed black strip at the bottom */}
+          letterboxed black strip at the bottom, and the library's own
+          inner wrapper is forced full-size too so no white gutter shows
+          on the sides. */}
       <div
         id={containerId}
-        className="absolute inset-0 h-full w-full overflow-hidden [&_video]:!absolute [&_video]:!inset-0 [&_video]:!h-full [&_video]:!w-full [&_video]:!object-cover"
+        className="absolute inset-0 h-full w-full overflow-hidden bg-black [&_video]:!absolute [&_video]:!inset-0 [&_video]:!h-full [&_video]:!w-full [&_video]:!object-cover"
       />
+      <style>{`
+        #${containerId} {
+          background: #000 !important;
+        }
+        #${containerId} > div {
+          width: 100% !important;
+          height: 100% !important;
+          background: #000 !important;
+        }
+        #${containerId} video,
+        #${containerId} canvas {
+          position: absolute !important;
+          inset: 0 !important;
+          top: 0 !important;
+          left: 0 !important;
+          width: 100% !important;
+          height: 100% !important;
+          object-fit: cover !important;
+        }
+      `}</style>
 
       {/* Floating words -- rise from below the scan frame and smoothly fade
           out as they cross into the frame's vertical band, so the frame
