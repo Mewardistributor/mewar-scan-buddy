@@ -130,12 +130,19 @@ export function CameraScanner({ onDetected, onClose }: Props) {
       {/* Full-bleed camera feed */}
       <div
         id={containerId}
-        className="absolute inset-0 [&_video]:!h-full [&_video]:!w-full [&_video]:!object-cover"
+        className="absolute inset-0 h-full w-full [&_video]:!h-full [&_video]:!w-full [&_video]:!object-cover"
       />
 
-      {/* Floating drifting words — golden, starting below the top label zone */}
+      {/* Floating words — clipped so they never render inside the scan-frame rectangle,
+          keeping that area perfectly clear/transparent at all times */}
       {!starting && !error ? (
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div
+          className="pointer-events-none absolute inset-0 z-[1] overflow-hidden"
+          style={{
+            clipPath:
+              "polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 66%, 8% 34%, 92% 34%, 92% 66%, 8% 66%, 8% 34%, 0 34%)",
+          }}
+        >
           {FLOATING_WORDS.map((word, i) => (
             <span
               key={word + i}
@@ -144,7 +151,7 @@ export function CameraScanner({ onDetected, onClose }: Props) {
                 left: `${(i * 23 + 5) % 78}%`,
                 bottom: `${-10 - (i % 6) * 8}%`,
                 fontSize: `${12 + (i % 4) * 4}px`,
-                color: "rgba(230, 180, 70, 0.55)",
+                color: "rgba(230, 180, 70, 0.6)",
                 textShadow: "0 1px 3px rgba(0,0,0,0.5)",
                 animation: `mdc-float-up ${11 + (i % 5) * 2}s linear infinite`,
                 animationDelay: `${i * 1.1}s`,
@@ -165,6 +172,28 @@ export function CameraScanner({ onDetected, onClose }: Props) {
         }
       `}</style>
 
+      {/* Dark vignette OUTSIDE the scan frame only, so the frame itself stays perfectly clear */}
+      <div
+        className="pointer-events-none absolute inset-0 z-[1]"
+        style={{
+          background: "rgba(0,0,0,0.35)",
+          clipPath:
+            "polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 66%, 8% 34%, 92% 34%, 92% 66%, 8% 66%, 8% 34%, 0 34%)",
+        }}
+      />
+
+      {/* Scan frame corners — drawn above everything, frame interior has no overlay */}
+      <div
+        className="pointer-events-none absolute left-1/2 top-1/2 z-[2] -translate-x-1/2 -translate-y-1/2"
+        style={{ width: "84%", maxWidth: "420px", height: "32%" }}
+      >
+        <span className="absolute left-0 top-0 h-8 w-8 rounded-tl-2xl border-l-4 border-t-4 border-primary" />
+        <span className="absolute right-0 top-0 h-8 w-8 rounded-tr-2xl border-r-4 border-t-4 border-primary" />
+        <span className="absolute bottom-0 left-0 h-8 w-8 rounded-bl-2xl border-b-4 border-l-4 border-primary" />
+        <span className="absolute bottom-0 right-0 h-8 w-8 rounded-br-2xl border-b-4 border-r-4 border-primary" />
+        <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 bg-primary/70 shadow-[0_0_12px_2px_rgba(13,92,83,0.8)] animate-pulse" />
+      </div>
+
       {/* Close button */}
       <button
         onClick={onClose}
@@ -181,20 +210,7 @@ export function CameraScanner({ onDetected, onClose }: Props) {
         </p>
       </div>
 
-      {/* Corner-bracket scan frame */}
-      {!starting && !error ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="relative h-[32%] w-[84%] max-w-md">
-            <span className="absolute left-0 top-0 h-8 w-8 rounded-tl-2xl border-l-4 border-t-4 border-primary" />
-            <span className="absolute right-0 top-0 h-8 w-8 rounded-tr-2xl border-r-4 border-t-4 border-primary" />
-            <span className="absolute bottom-0 left-0 h-8 w-8 rounded-bl-2xl border-b-4 border-l-4 border-primary" />
-            <span className="absolute bottom-0 right-0 h-8 w-8 rounded-br-2xl border-b-4 border-r-4 border-primary" />
-            <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 bg-primary/70 shadow-[0_0_12px_2px_rgba(13,92,83,0.8)] animate-pulse" />
-          </div>
-        </div>
-      ) : null}
-
-      {/* Bottom hint — floating pill, no solid bar */}
+      {/* Bottom hint */}
       {!starting && !error ? (
         <div className="absolute inset-x-0 bottom-8 z-10 flex justify-center px-6">
           <div className="rounded-full bg-black/50 px-4 py-2 text-center backdrop-blur-md">
@@ -204,7 +220,7 @@ export function CameraScanner({ onDetected, onClose }: Props) {
       ) : null}
 
       {starting ? (
-        <div className="absolute inset-0 grid place-items-center bg-black/60 text-white">
+        <div className="absolute inset-0 z-[5] grid place-items-center bg-black/60 text-white">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-7 w-7 animate-spin text-primary" />
             <p className="text-xs text-white/70">Starting camera...</p>
