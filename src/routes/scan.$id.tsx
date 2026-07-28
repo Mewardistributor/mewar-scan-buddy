@@ -310,8 +310,10 @@ function ScanScreen() {
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{p.product_name}</span>
                     <span className="block font-mono text-xs text-muted-foreground">
-                      {p.barcode} · Req {p.required_box ?? 0} Box / {p.required_pcs ?? 0} Pcs
+                      {photoOnly ? "" : `${p.barcode} · `}Req {p.required_box ?? 0} Box /{" "}
+                      {p.required_pcs ?? 0} Pcs
                     </span>
+
                   </span>
                   <StatusBadge status={p.status} />
                 </button>
