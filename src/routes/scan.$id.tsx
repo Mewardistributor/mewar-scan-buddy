@@ -484,7 +484,10 @@ function ProductCard({
         <DialogHeader>
           <DialogTitle className="text-left leading-snug">{product.product_name}</DialogTitle>
         </DialogHeader>
-        <p className="-mt-2 font-mono text-xs text-muted-foreground">{product.barcode}</p>
+        {product.barcode ? (
+          <p className="-mt-2 font-mono text-xs text-muted-foreground">{product.barcode}</p>
+        ) : null}
+
 
         <ReadRow
           label="Required"
