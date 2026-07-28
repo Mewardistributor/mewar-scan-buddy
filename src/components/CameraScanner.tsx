@@ -94,10 +94,6 @@ export function CameraScanner({ onDetected, onClose }: Props) {
     };
   }, [onDetected]);
 
-  // Loads a file into an <img>, then re-draws it onto a canvas with a given
-  // transform applied, returning a new File. Used to generate enhanced
-  // variants (grayscale+contrast, upscaled, etc.) of a gallery photo so we
-  // can retry barcode detection on a cleaner version of the same image.
   function loadImage(file: File): Promise<HTMLImageElement> {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -116,31 +112,50 @@ export function CameraScanner({ onDetected, onClose }: Props) {
 
   async function canvasToFile(canvas: HTMLCanvasElement, name: string): Promise<File> {
     const blob: Blob = await new Promise((resolve, reject) => {
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png", 1);
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/jpeg", 0.95);
     });
-    return new File([blob], name, { type: "image/png" });
+    return new File([blob], name, { type: "image/jpeg" });
   }
 
-  // Grayscale + contrast-stretch variant — helps with glare, soft focus,
-  // and low-contrast (e.g. glossy plastic wrap) barcodes.
-  async function makeEnhancedVariant(img: HTMLImageElement): Promise<File> {
-    const scale = img.width < 900 ? 900 / img.width : 1;
+  // Draws the image at a given rotation (0/90/180/270) onto a canvas,
+  // capped to a sensible max dimension. A moderate, consistent resolution
+  // (rather than whatever huge size the phone camera produced) tends to
+  // decode more reliably than either a very large or very tiny image.
+  function drawRotated(img: HTMLImageElement, rotationDeg: number, maxDim = 1400): HTMLCanvasElement {
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
     const w = Math.round(img.width * scale);
     const h = Math.round(img.height * scale);
 
     const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
     const ctx = canvas.getContext("2d")!;
-    ctx.drawImage(img, 0, 0, w, h);
 
-    const imageData = ctx.getImageData(0, 0, w, h);
+    if (rotationDeg === 90 || rotationDeg === 270) {
+      canvas.width = h;
+      canvas.height = w;
+    } else {
+      canvas.width = w;
+      canvas.height = h;
+    }
+
+    ctx.save();
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((rotationDeg * Math.PI) / 180);
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
+
+    return canvas;
+  }
+
+  // Grayscale + contrast-stretch — helps with glare, soft focus, and
+  // low-contrast (e.g. glossy plastic wrap) barcodes.
+  function enhanceCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+    const ctx = canvas.getContext("2d")!;
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const d = imageData.data;
 
-    // First pass: convert to grayscale, track min/max for contrast stretch
     let min = 255;
     let max = 0;
-    const gray = new Uint8ClampedArray(w * h);
+    const gray = new Uint8ClampedArray(canvas.width * canvas.height);
     for (let i = 0; i < d.length; i += 4) {
       const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
       gray[i / 4] = g;
@@ -155,7 +170,7 @@ export function CameraScanner({ onDetected, onClose }: Props) {
     }
 
     ctx.putImageData(imageData, 0, 0);
-    return canvasToFile(canvas, "enhanced.png");
+    return canvas;
   }
 
   async function tryScan(scanner: any, file: File): Promise<string | null> {
@@ -175,8 +190,6 @@ export function CameraScanner({ onDetected, onClose }: Props) {
     setProcessingFile(true);
     setError(null);
 
-    // A single Html5Qrcode instance can't run live camera scanning and
-    // file scanning at the same time, so stop the live camera first.
     const s = scannerRef.current;
     if (s && runningRef.current) {
       runningRef.current = false;
@@ -191,18 +204,27 @@ export function CameraScanner({ onDetected, onClose }: Props) {
       const { Html5Qrcode } = await import("html5-qrcode");
       const fileScanner = new Html5Qrcode(containerId);
 
-      // Attempt 1: the original photo, as-is.
-      let result = await tryScan(fileScanner, file);
+      let result: string | null = null;
 
-      // Attempt 2: an enhanced (grayscale + contrast-stretched, upscaled)
-      // version, which handles glare and soft-focus photos better.
+      // Attempt 1: original photo, untouched.
+      result = await tryScan(fileScanner, file);
+
+      // Attempts 2+: try every rotation (0/90/180/270), plain and
+      // enhanced, at a normalized resolution.
       if (!result) {
-        try {
-          const img = await loadImage(file);
-          const enhanced = await makeEnhancedVariant(img);
-          result = await tryScan(fileScanner, enhanced);
-        } catch {
-          /* enhancement failed, fall through to error below */
+        const img = await loadImage(file);
+        const rotations = [0, 90, 180, 270];
+
+        for (const rot of rotations) {
+          if (result) break;
+          const plainCanvas = drawRotated(img, rot);
+          const plainFile = await canvasToFile(plainCanvas, `rot${rot}.jpg`);
+          result = await tryScan(fileScanner, plainFile);
+          if (result) break;
+
+          const enhancedCanvas = enhanceCanvas(drawRotated(img, rot));
+          const enhancedFile = await canvasToFile(enhancedCanvas, `rot${rot}-enh.jpg`);
+          result = await tryScan(fileScanner, enhancedFile);
         }
       }
 
