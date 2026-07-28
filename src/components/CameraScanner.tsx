@@ -10,9 +10,19 @@ const FLOATING_WORDS = [
   "Mewar",
   "Distribution",
   "मेवाड़",
+  "Since 2019",
+  "Partnership",
   "Patanjali",
   "HUL",
   "Mamaearth",
+  "Glow & Lovely",
+  "Pears",
+  "Pond's",
+  "TRESemmé",
+  "Closeup",
+  "Lifebuoy",
+  "Vaseline",
+  "Horlicks",
   "वितरण",
   "Dabur",
   "Amit",
@@ -123,18 +133,21 @@ export function CameraScanner({ onDetected, onClose }: Props) {
         className="absolute inset-0 [&_video]:!h-full [&_video]:!w-full [&_video]:!object-cover"
       />
 
-      {/* Floating drifting words, rising from bottom to top */}
+      {/* Floating drifting words — golden, starting below the top label zone */}
       {!starting && !error ? (
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           {FLOATING_WORDS.map((word, i) => (
             <span
               key={word + i}
-              className="absolute select-none whitespace-nowrap font-display font-semibold text-white/20"
+              className="absolute select-none whitespace-nowrap font-display font-semibold"
               style={{
-                left: `${(i * 37) % 90}%`,
+                left: `${(i * 23 + 5) % 78}%`,
+                bottom: `${-10 - (i % 6) * 8}%`,
                 fontSize: `${12 + (i % 4) * 4}px`,
-                animation: `mdc-float-up ${9 + (i % 5) * 2}s linear infinite`,
-                animationDelay: `${i * 1.3}s`,
+                color: "rgba(230, 180, 70, 0.55)",
+                textShadow: "0 1px 3px rgba(0,0,0,0.5)",
+                animation: `mdc-float-up ${11 + (i % 5) * 2}s linear infinite`,
+                animationDelay: `${i * 1.1}s`,
               }}
             >
               {word}
@@ -145,10 +158,10 @@ export function CameraScanner({ onDetected, onClose }: Props) {
 
       <style>{`
         @keyframes mdc-float-up {
-          0% { transform: translateY(110vh); opacity: 0; }
-          10% { opacity: 1; }
-          90% { opacity: 1; }
-          100% { transform: translateY(-10vh); opacity: 0; }
+          0% { transform: translateY(0); opacity: 0; }
+          8% { opacity: 1; }
+          85% { opacity: 1; }
+          100% { transform: translateY(-115vh); opacity: 0; }
         }
       `}</style>
 
@@ -181,7 +194,7 @@ export function CameraScanner({ onDetected, onClose }: Props) {
         </div>
       ) : null}
 
-      {/* Bottom hint */}
+      {/* Bottom hint — floating pill, no solid bar */}
       {!starting && !error ? (
         <div className="absolute inset-x-0 bottom-8 z-10 flex justify-center px-6">
           <div className="rounded-full bg-black/50 px-4 py-2 text-center backdrop-blur-md">
