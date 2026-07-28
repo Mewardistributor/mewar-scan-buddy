@@ -79,6 +79,8 @@ function FinalReport() {
     );
 
   const { summary, products } = data;
+  const noBarcode = products.length > 0 && products.every((p) => !(p.barcode ?? "").trim());
+
   const counts = {
     match: products.filter((p) => p.status === "match").length,
     short: products.filter((p) => p.status === "short").length,
