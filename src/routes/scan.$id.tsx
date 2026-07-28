@@ -161,7 +161,7 @@ function ScanScreen() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [modalOpen, handleBarcode]);
+  }, [modalOpen, photoOnly, handleBarcode]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
