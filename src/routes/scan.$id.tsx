@@ -269,18 +269,25 @@ function ScanScreen() {
         ) : null}
       </section>
 
-      <div className="grid gap-2 sm:grid-cols-3">
-        <Button variant="hero" size="lg" onClick={() => setCamera(true)}>
-          <Camera className="h-5 w-5" /> Scan with Camera
-        </Button>
-        <Button variant="outline" size="lg" onClick={() => setPhotoMatch(true)}>
+      {photoOnly ? (
+        <Button variant="hero" size="lg" className="w-full" onClick={() => setPhotoMatch(true)}>
           <ImagePlus className="h-5 w-5" /> Match by Photo
         </Button>
-        <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-          <Keyboard className="h-4 w-4 text-primary" />
-          USB / Bluetooth scanner ready — just scan
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Button variant="hero" size="lg" onClick={() => setCamera(true)}>
+            <Camera className="h-5 w-5" /> Scan with Camera
+          </Button>
+          <Button variant="outline" size="lg" onClick={() => setPhotoMatch(true)}>
+            <ImagePlus className="h-5 w-5" /> Match by Photo
+          </Button>
+          <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+            <Keyboard className="h-4 w-4 text-primary" />
+            USB / Bluetooth scanner ready — just scan
+          </div>
         </div>
-      </div>
+      )}
+
 
       <section className="surface-card space-y-3 p-4">
         <div className="relative">
