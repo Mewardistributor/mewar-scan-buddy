@@ -6,7 +6,9 @@ import {
   ClipboardList,
   Download,
   FileText,
+  ImagePlus,
   Inbox,
+
   Loader2,
   Plus,
   Trash2,
