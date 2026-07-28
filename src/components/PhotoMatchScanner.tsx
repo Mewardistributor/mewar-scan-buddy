@@ -51,6 +51,8 @@ export function PhotoMatchScanner({ products, onSelect, onClose }: Props) {
   const [ocrText, setOcrText] = useState("");
   const [matches, setMatches] = useState<Product[]>([]);
   const [manualQuery, setManualQuery] = useState("");
+  const [noMatch, setNoMatch] = useState(false);
+
 
   useEffect(() => {
     const original = document.body.style.overflow;
