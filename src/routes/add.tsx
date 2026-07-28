@@ -130,17 +130,18 @@ function AddSummary() {
   function addManual() {
     const barcode = newItem.barcode.trim();
     const name = newItem.product_name.trim();
-    if (!barcode || !name) {
-      toast.error("Barcode and product name are required");
+    if (!name || (!noBarcode && !barcode)) {
+      toast.error(noBarcode ? "Product name is required" : "Barcode and product name are required");
       return;
     }
     manualSeq += 1;
     setRows((prev) => [
       ...(prev ?? []),
       {
-        key: `manual-${manualSeq}-${barcode}`,
+        key: `manual-${manualSeq}-${barcode || name}`,
         barcode,
         product_name: name,
+
         required_mrp: Number(newItem.mrp) || 0,
         required_box: Number(newItem.box) || 0,
         required_pcs: Number(newItem.pcs) || 0,
