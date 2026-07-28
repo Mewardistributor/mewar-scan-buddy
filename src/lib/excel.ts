@@ -169,14 +169,26 @@ function buildIssueLabel(
   return parts.length ? `Issue: ${parts.join(", ")}` : "Issue";
 }
 
-export async function downloadFinalReport(summary: Summary, products: Product[]) {
+export async function downloadFinalReport(
+  summary: Summary,
+  products: Product[],
+  opts?: { noBarcode?: boolean },
+) {
+  const noBarcode = !!opts?.noBarcode;
   const wb = new ExcelJS.Workbook();
   const sheet = wb.addWorksheet("Final Report");
 
-  // Barcode | Product/Info | MRP | Box | Pcs
-  sheet.columns = [{ width: 18 }, { width: 32 }, { width: 14 }, { width: 12 }, { width: 12 }];
+  // [Barcode] | Product/Info | MRP | Box | Pcs
+  const widths = [{ width: 32 }, { width: 14 }, { width: 12 }, { width: 12 }];
+  sheet.columns = noBarcode ? widths : [{ width: 18 }, ...widths];
 
-  sheet.mergeCells("A1:E1");
+  // Column index of the Nth logical column (1 = Product/Info)
+  const c = (n: number) => (noBarcode ? n : n + 1);
+  const line = (barcode: string, rest: (string | number)[]) =>
+    sheet.addRow(noBarcode ? rest : [barcode, ...rest]);
+
+  const lastCol = noBarcode ? "D" : "E";
+  sheet.mergeCells(`A1:${lastCol}1`);
   const titleCell = sheet.getCell("A1");
   titleCell.value = `Mewar Distribution Centre — ${summary.title}`;
   titleCell.font = { bold: true, size: 14, color: { argb: HEADER_FONT } };
@@ -184,7 +196,7 @@ export async function downloadFinalReport(summary: Summary, products: Product[])
   titleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_BG } };
   sheet.getRow(1).height = 26;
 
-  const headerRow = sheet.addRow(["Barcode", "Product / Info", "MRP", "Box", "Pcs"]);
+  const headerRow = line("Barcode", ["Product / Info", "MRP", "Box", "Pcs"]);
   headerRow.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: HEADER_FONT } };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_BG } };
@@ -206,46 +218,44 @@ export async function downloadFinalReport(summary: Summary, products: Product[])
     const compBox = p.completed_box ?? 0;
     const compPcs = p.completed_pcs ?? 0;
 
-    sheet.addRow([p.barcode ?? "", p.product_name, reqMrp, reqBox, reqPcs]);
+    line(p.barcode ?? "", [p.product_name ?? "", reqMrp, reqBox, reqPcs]);
 
     if (p.status === "match") {
-      const row = sheet.addRow([p.barcode ?? "", "CORRECT", compMrp, compBox, compPcs]);
+      const row = line(p.barcode ?? "", ["CORRECT", compMrp, compBox, compPcs]);
       row.eachCell((cell) => {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREEN } };
       });
-      const labelCell = row.getCell(2);
+      const labelCell = row.getCell(c(1));
       labelCell.font = { bold: true, size: 13 };
       labelCell.alignment = { horizontal: "center", vertical: "middle" };
     } else if (p.status === "pending") {
-      const row = sheet.addRow([p.barcode ?? "", "Not Scanned", "—", "—", "—"]);
+      const row = line(p.barcode ?? "", ["Not Scanned", "—", "—", "—"]);
       row.eachCell((cell) => {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY } };
       });
-      const labelCell = row.getCell(2);
-      labelCell.font = { bold: true, italic: true };
+      row.getCell(c(1)).font = { bold: true, italic: true };
     } else {
       const issueLabel = buildIssueLabel(reqMrp, reqBox, reqPcs, compMrp, compBox, compPcs);
-      const row = sheet.addRow([p.barcode ?? "", issueLabel, compMrp, compBox, compPcs]);
-      row.getCell(2).font = { bold: true };
+      const row = line(p.barcode ?? "", [issueLabel, compMrp, compBox, compPcs]);
+      row.getCell(c(1)).font = { bold: true };
 
       if (fieldDiff(compMrp, reqMrp) !== "match")
-        row.getCell(3).fill = { type: "pattern", pattern: "solid", fgColor: { argb: RED } };
+        row.getCell(c(2)).fill = { type: "pattern", pattern: "solid", fgColor: { argb: RED } };
       if (fieldDiff(compBox, reqBox) !== "match")
-        row.getCell(4).fill = { type: "pattern", pattern: "solid", fgColor: { argb: RED } };
+        row.getCell(c(3)).fill = { type: "pattern", pattern: "solid", fgColor: { argb: RED } };
       if (fieldDiff(compPcs, reqPcs) !== "match")
-        row.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: RED } };
+        row.getCell(c(4)).fill = { type: "pattern", pattern: "solid", fgColor: { argb: RED } };
     }
 
     sheet.addRow([]);
   }
 
   if (adminAdded.length > 0) {
-    const secHeader = sheet.addRow(["", "Items Added by Admin", "", "", ""]);
-    secHeader.getCell(2).font = { bold: true, italic: true };
+    const secHeader = line("", ["Items Added by Admin", "", "", ""]);
+    secHeader.getCell(c(1)).font = { bold: true, italic: true };
     for (const p of adminAdded) {
-      const row = sheet.addRow([
-        p.barcode ?? "",
-        p.product_name,
+      const row = line(p.barcode ?? "", [
+        p.product_name ?? "",
         p.completed_mrp ?? p.required_mrp ?? 0,
         p.completed_box ?? p.required_box ?? 0,
         p.completed_pcs ?? p.required_pcs ?? 0,
@@ -258,12 +268,11 @@ export async function downloadFinalReport(summary: Summary, products: Product[])
   }
 
   if (adminRemoved.length > 0) {
-    const secHeader = sheet.addRow(["", "Items Removed by Admin", "", "", ""]);
-    secHeader.getCell(2).font = { bold: true, italic: true };
+    const secHeader = line("", ["Items Removed by Admin", "", "", ""]);
+    secHeader.getCell(c(1)).font = { bold: true, italic: true };
     for (const p of adminRemoved) {
-      const row = sheet.addRow([
-        p.barcode ?? "",
-        p.product_name,
+      const row = line(p.barcode ?? "", [
+        p.product_name ?? "",
         p.required_mrp ?? 0,
         p.required_box ?? 0,
         p.required_pcs ?? 0,
@@ -273,6 +282,7 @@ export async function downloadFinalReport(summary: Summary, products: Product[])
       });
     }
   }
+
 
   const buffer = await wb.xlsx.writeBuffer();
   const blob = new Blob([buffer], {
