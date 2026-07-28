@@ -94,6 +94,79 @@ export function CameraScanner({ onDetected, onClose }: Props) {
     };
   }, [onDetected]);
 
+  // Loads a file into an <img>, then re-draws it onto a canvas with a given
+  // transform applied, returning a new File. Used to generate enhanced
+  // variants (grayscale+contrast, upscaled, etc.) of a gallery photo so we
+  // can retry barcode detection on a cleaner version of the same image.
+  function loadImage(file: File): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Could not load image"));
+      };
+      img.src = url;
+    });
+  }
+
+  async function canvasToFile(canvas: HTMLCanvasElement, name: string): Promise<File> {
+    const blob: Blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob failed"))), "image/png", 1);
+    });
+    return new File([blob], name, { type: "image/png" });
+  }
+
+  // Grayscale + contrast-stretch variant — helps with glare, soft focus,
+  // and low-contrast (e.g. glossy plastic wrap) barcodes.
+  async function makeEnhancedVariant(img: HTMLImageElement): Promise<File> {
+    const scale = img.width < 900 ? 900 / img.width : 1;
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d")!;
+    ctx.drawImage(img, 0, 0, w, h);
+
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const d = imageData.data;
+
+    // First pass: convert to grayscale, track min/max for contrast stretch
+    let min = 255;
+    let max = 0;
+    const gray = new Uint8ClampedArray(w * h);
+    for (let i = 0; i < d.length; i += 4) {
+      const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      gray[i / 4] = g;
+      if (g < min) min = g;
+      if (g > max) max = g;
+    }
+
+    const range = Math.max(max - min, 1);
+    for (let i = 0; i < d.length; i += 4) {
+      const stretched = ((gray[i / 4] - min) / range) * 255;
+      d[i] = d[i + 1] = d[i + 2] = stretched;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    return canvasToFile(canvas, "enhanced.png");
+  }
+
+  async function tryScan(scanner: any, file: File): Promise<string | null> {
+    try {
+      const result = await scanner.scanFile(file, false);
+      return String(result).trim();
+    } catch {
+      return null;
+    }
+  }
+
   async function handleGalleryPick(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-picking the same file later
@@ -117,15 +190,36 @@ export function CameraScanner({ onDetected, onClose }: Props) {
     try {
       const { Html5Qrcode } = await import("html5-qrcode");
       const fileScanner = new Html5Qrcode(containerId);
-      const result = await fileScanner.scanFile(file, false);
+
+      // Attempt 1: the original photo, as-is.
+      let result = await tryScan(fileScanner, file);
+
+      // Attempt 2: an enhanced (grayscale + contrast-stretched, upscaled)
+      // version, which handles glare and soft-focus photos better.
+      if (!result) {
+        try {
+          const img = await loadImage(file);
+          const enhanced = await makeEnhancedVariant(img);
+          result = await tryScan(fileScanner, enhanced);
+        } catch {
+          /* enhancement failed, fall through to error below */
+        }
+      }
+
       try {
         fileScanner.clear();
       } catch {
         /* ignore */
       }
-      if (!firedRef.current) {
+
+      if (result && !firedRef.current) {
         firedRef.current = true;
-        onDetected(String(result).trim());
+        onDetected(result);
+      } else if (!result) {
+        setProcessingFile(false);
+        setError(
+          "Could not find a barcode in that photo. Try a clearer, well-lit image with the barcode centered."
+        );
       }
     } catch {
       setProcessingFile(false);
