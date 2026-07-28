@@ -272,12 +272,15 @@ function AddSummary() {
 
           {showAdd ? (
             <div className="grid gap-2 rounded-xl bg-secondary/60 p-3 sm:grid-cols-6">
-              <Input
-                placeholder="Barcode"
-                value={newItem.barcode}
-                onChange={(e) => setNewItem({ ...newItem, barcode: e.target.value })}
-                className="sm:col-span-2"
-              />
+              {noBarcode ? null : (
+                <Input
+                  placeholder="Barcode"
+                  value={newItem.barcode}
+                  onChange={(e) => setNewItem({ ...newItem, barcode: e.target.value })}
+                  className="sm:col-span-2"
+                />
+              )}
+
               <Input
                 placeholder="Product name"
                 value={newItem.product_name}
