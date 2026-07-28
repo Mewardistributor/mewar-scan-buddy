@@ -19,6 +19,9 @@ import { parseDispatchExcel, type ParsedRow } from "@/lib/excel";
 import { supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/add")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    mode: search.mode === "photo" ? ("photo" as const) : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Add Dispatch Summary | Mewar Distribution Centre" },
@@ -44,6 +47,7 @@ function AddSummaryPage() {
     </AppShell>
   );
 }
+
 
 let manualSeq = 0;
 
