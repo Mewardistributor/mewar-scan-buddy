@@ -213,7 +213,7 @@ function VerificationScreen() {
                     <tr
                       key={c.id}
                       className="cursor-pointer transition-colors hover:bg-secondary/40"
-                      onClick={() => toast.info("Shop item verification screen coming in Step 5")}
+                      onClick={() => navigate({ to: "/admin/verification/$chalanId", params: { chalanId: c.id } })}
                     >
                       <td className="py-3 pr-2 text-muted-foreground">
                         {(page - 1) * PAGE_SIZE + i + 1}
