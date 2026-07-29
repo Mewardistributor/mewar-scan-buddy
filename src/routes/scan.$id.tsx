@@ -11,6 +11,7 @@ import {
   Search,
   ImagePlus,
   Image as ImageIcon,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, EmptyState, Spinner } from "@/components/AppShell";
@@ -89,11 +90,12 @@ function ScanScreen() {
     queryKey: ["scan", id],
     queryFn: async () => {
       const [s, p] = await Promise.all([
-        supabase.from("summaries").select("*").eq("id", id).single(),
+        supabase.from("summaries").select("*").eq("id", id).maybeSingle(),
         supabase.from("products").select("*").eq("summary_id", id).order("created_at"),
       ]);
       if (s.error) throw s.error;
       if (p.error) throw p.error;
+      if (!s.data) throw new Error("SUMMARY_NOT_FOUND");
       return { summary: s.data as Summary, products: (p.data ?? []) as Product[] };
     },
   });
@@ -217,12 +219,26 @@ function ScanScreen() {
   }
 
   if (isLoading) return <Spinner label="Loading dispatch..." />;
-  if (error)
+
+  if (error) {
+    const isNotFound = (error as Error).message === "SUMMARY_NOT_FOUND";
     return (
-      <p className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">
-        {(error as Error).message}
-      </p>
+      <EmptyState
+        icon={<AlertCircle className="h-6 w-6" />}
+        title={isNotFound ? "This summary no longer exists" : "Something went wrong"}
+        description={
+          isNotFound
+            ? "It may have been deleted. Please go back to the dashboard and pick a summary from the list."
+            : (error as Error).message
+        }
+        action={
+          <Button variant="hero" onClick={() => navigate({ to: "/" })}>
+            <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+          </Button>
+        }
+      />
     );
+  }
 
   return (
     <div className="space-y-5">
