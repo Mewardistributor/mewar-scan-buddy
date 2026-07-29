@@ -85,6 +85,7 @@ function ScanScreen() {
   const [flash, setFlash] = useState<string | null>(null);
   const bufferRef = useRef("");
   const lastKeyRef = useRef(0);
+  const lastAutoOpenedRef = useRef<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["scan", id],
@@ -146,6 +147,7 @@ function ScanScreen() {
     }
   }, []);
 
+  // External USB / Bluetooth scanner: rapid keystrokes ending in Enter.
   useEffect(() => {
     if (modalOpen || photoOnly) return;
     function onKeyDown(e: KeyboardEvent) {
@@ -166,61 +168,41 @@ function ScanScreen() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [modalOpen, photoOnly, handleBarcode]);
 
- const filtered = useMemo(() => {
-  const q = search.trim().toLowerCase();
+  // Search: starting-letters match only.
+  // "cl 1" matches "Cloroform 1" (name starts with "cl", and "1" appears
+  // after it) but NOT something like "Coloro 42" (doesn't start with "cl").
+  // Barcode search still works as a plain prefix match in the same box.
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return products;
 
-  if (!q) return products;
+    const tokens = q.split(/\s+/).filter(Boolean);
 
-  const tokens = q.split(/\s+/);
+    return products.filter((p) => {
+      const name = (p.product_name ?? "").toLowerCase();
+      const barcode = (p.barcode ?? "").toLowerCase();
 
-  return products.filter((p) => {
-    const name = (p.product_name ?? "").toLowerCase();
-    const barcode = (p.barcode ?? "").toLowerCase();
+      if (barcode && barcode.startsWith(q)) return true;
 
-    // Barcode search same rahega
-    if (barcode.startsWith(q)) return true;
+      if (!name.startsWith(tokens[0])) return false;
+      for (let i = 1; i < tokens.length; i++) {
+        if (!name.includes(tokens[i])) return false;
+      }
+      return true;
+    });
+  }, [products, search]);
 
-    // Product name must start with first token
-    if (!name.startsWith(tokens[0])) return false;
-
-    // Remaining tokens must exist somewhere in name
-    for (let i = 1; i < tokens.length; i++) {
-      if (!name.includes(tokens[i])) return false;
-    }
-
-    return true;
-  });
-
-}, [products, search]);
-
-  const lastAutoOpenedRef = useRef<string | null>(null);
-
-useEffect(() => {
-
-    if (filtered.length !== 1) {
-      lastAutoOpenedRef.current = null;
+  // Exactly one match while actively searching → auto-open its edit dialog.
+  useEffect(() => {
+    if (!search.trim() || filtered.length !== 1 || modalOpen) {
+      if (filtered.length !== 1) lastAutoOpenedRef.current = null;
       return;
     }
-
-    if (modalOpen) return;
-
     const p = filtered[0];
-
     if (lastAutoOpenedRef.current === p.id) return;
-
     lastAutoOpenedRef.current = p.id;
-
     openProduct(p);
-
-}, [filtered, modalOpen]);
-    if (filtered.length === 1 && !modalOpen) {
-      const p = filtered[0];
-      if (lastAutoOpenedRef.current !== p.id) {
-        lastAutoOpenedRef.current = p.id;
-        openProduct(p);
-      }
-    }
-  }, [filtered, search, priceFilter, modalOpen]);
+  }, [filtered, search, modalOpen]);
 
   function openProduct(p: Product) {
     if (p.status === "match") setReadOnly(p);
@@ -252,7 +234,10 @@ useEffect(() => {
         return;
       }
     }
-    const { error: sErr } = await supabase.from("summaries").update({ status: "done" }).eq("id", id);
+    const { error: sErr } = await supabase
+      .from("summaries")
+      .update({ status: "done", finalized_at: new Date().toISOString() })
+      .eq("id", id);
     setFinishing(false);
     if (sErr) {
       toast.error(`Could not finalize summary: ${sErr.message}`);
@@ -355,23 +340,12 @@ useEffect(() => {
 
       <section className="surface-card space-y-3 p-4">
         <div className="relative">
-
-<Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-
-<Input
-className="h-11 pl-9"
-placeholder='Search Product (Example: cl, cl 1)'
-value={search}
-onChange={(e)=>setSearch(e.target.value)}
-/>
-
-</div>
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="h-11 w-24"
-            inputMode="decimal"
-            placeholder="₹ Price"
-            value={priceFilter}
-            onChange={(e) => setPriceFilter(e.target.value)}
+            className="h-11 pl-9"
+            placeholder="Search Product (Example: cl, cl 1)"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         {filtered.length === 0 ? (
@@ -392,20 +366,10 @@ onChange={(e)=>setSearch(e.target.value)}
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{p.product_name}</span>
                     <span className="block text-xs text-muted-foreground">
-
-{photoOnly ? "" : `${p.barcode} • `}
-
-MRP ₹{p.required_mrp ?? "-"}
-
-{" • "}
-
-{p.required_box ?? 0} Box
-
-{" • "}
-
-{p.required_pcs ?? 0} Pcs
-
-</span>
+                      {photoOnly ? "" : `${p.barcode} • `}
+                      MRP ₹{p.required_mrp ?? "-"} • {p.required_box ?? 0} Box •{" "}
+                      {p.required_pcs ?? 0} Pcs
+                    </span>
                   </span>
                   <StatusBadge status={p.status} />
                 </button>
