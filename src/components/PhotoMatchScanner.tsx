@@ -58,15 +58,22 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
   }
 
   async function askGemini(base64Jpeg: string): Promise<string[]> {
-    const { data, error: fnError } = await supabase.functions.invoke("match-product", {
-      body: {
+    const result = await matchProductByPhoto({
+      data: {
         image: base64Jpeg,
         products: products.map((p) => ({ id: p.id, name: p.product_name })),
       },
     });
-    if (fnError) throw fnError;
-    return (data?.matches as string[]) ?? [];
+    if (result.rateLimited) {
+      // back off so we stop hammering the model
+      cooldownUntilRef.current = Date.now() + 20000;
+      setError("AI busy (rate limited) — retrying in a few seconds…");
+    } else if (result.error) {
+      setError(result.error);
+    }
+    return result.matches ?? [];
   }
+
 
   async function scanFrameOnce() {
     if (busyRef.current || firedRef.current) return;
