@@ -37,7 +37,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-[100dvh] flex-col bg-[image:var(--gradient-surface)]">
       <Header />
-      <main key={typeof window === "undefined" ? "ssr" : window.location.pathname} className="mx-auto w-full max-w-6xl flex-1 animate-fade-up px-4 py-6 pb-20">
+     <main className="mx-auto w-full max-w-6xl flex-1 animate-fade-up px-4 py-6 pb-20">
         {children}
       </main>
       <WarehouseMascot />
