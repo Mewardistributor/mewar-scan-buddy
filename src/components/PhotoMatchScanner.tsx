@@ -123,9 +123,23 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
 
     async function startCamera() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
-        });
+        if (!navigator.mediaDevices?.getUserMedia) {
+          setError(
+            "Camera is not available here. Open the app in your phone browser (https), or use the gallery / name search."
+          );
+          return;
+        }
+
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: "environment" } },
+            audio: false,
+          });
+        } catch {
+          // Some devices/browsers reject the facingMode constraint — retry plain video.
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
 
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
@@ -136,27 +150,40 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
         const video = videoRef.current;
         if (video) {
           video.srcObject = stream;
+          video.muted = true;
+          video.setAttribute("playsinline", "true");
 
-          await new Promise<void>((resolve) => {
-            video.onloadedmetadata = () => resolve();
-            setTimeout(resolve, 2000); // safety timeout
-          });
+          const tryPlay = async () => {
+            try {
+              await video.play();
+            } catch {
+              // Autoplay may be blocked without a user gesture on some browsers.
+            }
+          };
 
-          try {
-            await video.play();
-            setVideoReady(true);
-          } catch {
-            // Autoplay may be blocked without a user gesture on some browsers.
-          }
+          video.onloadedmetadata = tryPlay;
+          video.oncanplay = tryPlay;
+          video.onplaying = () => setVideoReady(true);
+          await tryPlay();
+
+          // Fallback: if frames are flowing but events were missed, mark ready anyway.
+          setTimeout(() => {
+            if (!cancelled && video.videoWidth > 0) setVideoReady(true);
+          }, 1500);
         }
 
         scanTimerRef.current = setInterval(scanFrameOnce, SCAN_INTERVAL_MS);
       } catch (e) {
         if (!cancelled) {
+          const name = (e as { name?: string })?.name;
           setError(
-            e instanceof Error
-              ? e.message
-              : "Could not start the camera. Please allow camera access."
+            name === "NotAllowedError"
+              ? "Camera permission blocked. Allow camera access for this site and try again."
+              : name === "NotFoundError"
+                ? "No camera found on this device."
+                : e instanceof Error
+                  ? e.message
+                  : "Could not start the camera. Please allow camera access."
           );
         }
       }
