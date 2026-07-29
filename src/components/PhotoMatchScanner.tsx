@@ -62,7 +62,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
     const result = await matchProductByPhoto({
       data: {
         image: base64Jpeg,
-        products: products.map((p) => ({ id: p.id, name: p.product_name })),
+        products: products.map((p) => ({ id: p.id, name: p.product_name ?? "" })),
       },
     });
     if (result.rateLimited) {
