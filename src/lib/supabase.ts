@@ -82,3 +82,20 @@ export type BillItem = {
   amount: number;
   created_at: string;
 };
+export type Chalan = {
+  id: string;
+  bill_id: string | null;
+  chalan_number: string | null;
+  sno: number | null;
+  bill_number: string;
+  chalan_date: string | null;
+  party_name: string;
+  bill_value: number;
+  boxes: string | null;
+  remarks: string | null;
+  driver_id: string | null;
+  status: "pending" | "dispatched" | "delivered" | "verified";
+  source_file_name: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+};
