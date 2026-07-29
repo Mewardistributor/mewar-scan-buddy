@@ -75,7 +75,6 @@ function ScanScreen() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
-  const [priceFilter, setPriceFilter] = useState("");
   const [camera, setCamera] = useState(false);
   const [photoMatch, setPhotoMatch] = useState(false);
   const [photoGallery, setPhotoGallery] = useState(false);
@@ -167,34 +166,53 @@ function ScanScreen() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [modalOpen, photoOnly, handleBarcode]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const priceQ = priceFilter.trim();
-    return products.filter((p) => {
-      const nameMatch =
-        !q ||
-        (p.product_name ?? "").toLowerCase().includes(q) ||
-        (p.barcode ?? "").toLowerCase().includes(q);
-      const priceMatch =
-        !priceQ ||
-        String(p.required_mrp ?? "").includes(priceQ) ||
-        String(p.completed_mrp ?? "").includes(priceQ);
-      return nameMatch && priceMatch;
-    });
-  }, [products, search, priceFilter]);
+ const filtered = useMemo(() => {
+  const q = search.trim().toLowerCase();
+
+  if (!q) return products;
+
+  const tokens = q.split(/\s+/);
+
+  return products.filter((p) => {
+    const name = (p.product_name ?? "").toLowerCase();
+    const barcode = (p.barcode ?? "").toLowerCase();
+
+    // Barcode search same rahega
+    if (barcode.startsWith(q)) return true;
+
+    // Product name must start with first token
+    if (!name.startsWith(tokens[0])) return false;
+
+    // Remaining tokens must exist somewhere in name
+    for (let i = 1; i < tokens.length; i++) {
+      if (!name.includes(tokens[i])) return false;
+    }
+
+    return true;
+  });
+
+}, [products, search]);
 
   const lastAutoOpenedRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    const q = search.trim();
-    const priceQ = priceFilter.trim();
-    // Only auto-open when BOTH name and price are typed, and they narrow
-    // it down to exactly one product — avoids accidentally jumping into
-    // edit while the user is still typing a name alone.
-    if (!q || !priceQ) {
+useEffect(() => {
+
+    if (filtered.length !== 1) {
       lastAutoOpenedRef.current = null;
       return;
     }
+
+    if (modalOpen) return;
+
+    const p = filtered[0];
+
+    if (lastAutoOpenedRef.current === p.id) return;
+
+    lastAutoOpenedRef.current = p.id;
+
+    openProduct(p);
+
+}, [filtered, modalOpen]);
     if (filtered.length === 1 && !modalOpen) {
       const p = filtered[0];
       if (lastAutoOpenedRef.current !== p.id) {
@@ -336,16 +354,18 @@ function ScanScreen() {
       )}
 
       <section className="surface-card space-y-3 p-4">
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="h-11 pl-9"
-              placeholder="Search product name or barcode"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+        <div className="relative">
+
+<Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+
+<Input
+className="h-11 pl-9"
+placeholder='Search Product (Example: cl, cl 1)'
+value={search}
+onChange={(e)=>setSearch(e.target.value)}
+/>
+
+</div>
           <Input
             className="h-11 w-24"
             inputMode="decimal"
@@ -371,10 +391,21 @@ function ScanScreen() {
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{p.product_name}</span>
-                    <span className="block font-mono text-xs text-muted-foreground">
-                      {photoOnly ? "" : `${p.barcode} · `}Req {p.required_box ?? 0} Box /{" "}
-                      {p.required_pcs ?? 0} Pcs
-                    </span>
+                    <span className="block text-xs text-muted-foreground">
+
+{photoOnly ? "" : `${p.barcode} • `}
+
+MRP ₹{p.required_mrp ?? "-"}
+
+{" • "}
+
+{p.required_box ?? 0} Box
+
+{" • "}
+
+{p.required_pcs ?? 0} Pcs
+
+</span>
                   </span>
                   <StatusBadge status={p.status} />
                 </button>
