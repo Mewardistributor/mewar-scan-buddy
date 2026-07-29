@@ -108,20 +108,19 @@ export type MatchingRun = {
   unmatched_count: number;
   created_at: string;
 };
-
 export type MatchingResult = {
   id: string;
   matching_run_id: string;
-  export type Driver = {
+  chalan_id: string;
+  bill_id: string | null;
+  match_method: "bill_number" | "shop_and_date" | "shop_only" | "unmatched";
+  created_at: string;
+};
+export type Driver = {
   id: string;
   name: string;
   phone: string | null;
   vehicle_number: string | null;
   status: "active" | "inactive";
-  created_at: string;
-};
-  chalan_id: string;
-  bill_id: string | null;
-  match_method: "bill_number" | "shop_and_date" | "shop_only" | "unmatched";
   created_at: string;
 };
