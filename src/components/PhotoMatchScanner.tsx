@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, RotateCcw, Search, X, CheckCircle2, Upload } from "lucide-react";
+import { Loader2, Search, X, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { supabase } from "@/lib/supabase";
 import type { Product } from "@/lib/supabase";
 
 type Props = {
@@ -19,36 +20,24 @@ function normalize(text: string) {
     .trim();
 }
 
-function scoreMatch(ocrText: string, productName: string) {
-  const ocrWords = new Set(normalize(ocrText).split(" ").filter((w) => w.length > 1));
-  const nameWords = normalize(productName).split(" ").filter((w) => w.length > 1);
-  if (nameWords.length === 0 || ocrWords.size === 0) return 0;
-  let hits = 0;
-  for (const w of nameWords) {
-    if (ocrWords.has(w)) hits++;
-    else {
-      for (const ow of ocrWords) {
-        if (ow.length > 3 && (ow.includes(w) || w.includes(ow))) {
-          hits += 0.5;
-          break;
-        }
-      }
-    }
-  }
-  return hits / nameWords.length;
-}
+const SCAN_INTERVAL_MS = 3000;
 
 export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera" }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const [phase, setPhase] = useState<"camera" | "processing" | "results" | "manual">(
+  const scanTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const busyRef = useRef(false);
+  const firedRef = useRef(false);
+
+  const [phase, setPhase] = useState<"camera" | "results" | "manual">(
     mode === "gallery" ? "manual" : "camera"
   );
   const [error, setError] = useState<string | null>(null);
   const [matches, setMatches] = useState<Product[]>([]);
   const [manualQuery, setManualQuery] = useState("");
+  const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
     const original = document.body.style.overflow;
@@ -58,23 +47,85 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
     };
   }, []);
 
+  function stopCamera() {
+    if (scanTimerRef.current) {
+      clearInterval(scanTimerRef.current);
+      scanTimerRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }
+
+  async function askGemini(base64Jpeg: string): Promise<string[]> {
+    const { data, error: fnError } = await supabase.functions.invoke("match-product", {
+      body: {
+        image: base64Jpeg,
+        products: products.map((p) => ({ id: p.id, name: p.product_name })),
+      },
+    });
+    if (fnError) throw fnError;
+    return (data?.matches as string[]) ?? [];
+  }
+
+  async function scanFrameOnce() {
+    if (busyRef.current || firedRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || video.readyState < 2) return;
+
+    busyRef.current = true;
+    setScanning(true);
+    try {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+      const base64 = dataUrl.split(",")[1];
+
+      const matchIds = await askGemini(base64);
+      if (firedRef.current || matchIds.length === 0) return;
+
+      const found = matchIds
+        .map((id) => products.find((p) => p.id === id))
+        .filter((p): p is Product => !!p);
+
+      if (found.length === 0) return;
+
+      firedRef.current = true;
+      stopCamera();
+
+      if (found.length === 1) {
+        onSelect(found[0]);
+      } else {
+        setMatches(found);
+        setPhase("results");
+      }
+    } catch {
+      // per-frame miss (network hiccup etc.) — just try again next tick
+    } finally {
+      busyRef.current = false;
+      setScanning(false);
+    }
+  }
+
   useEffect(() => {
     if (mode === "gallery") {
-      // Trigger the native file picker right away for gallery mode.
       setTimeout(() => fileInputRef.current?.click(), 100);
       return;
     }
     if (phase !== "camera") return;
     let cancelled = false;
+    firedRef.current = false;
 
     async function startCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 1080 },
-            height: { ideal: 1440 },
-            aspectRatio: { ideal: 3 / 4 },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
           },
         });
         if (cancelled) {
@@ -86,6 +137,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
         }
+        scanTimerRef.current = setInterval(scanFrameOnce, SCAN_INTERVAL_MS);
       } catch (e) {
         if (!cancelled) {
           setError(
@@ -101,62 +153,31 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
 
     return () => {
       cancelled = true;
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
+      stopCamera();
     };
-  }, [phase, mode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, mode, products]);
 
-  function findMatches(text: string): Product[] {
-    const scored = products
-      .map((p) => ({ p, score: scoreMatch(text, p.product_name) }))
-      .filter((s) => s.score >= 0.34)
-      .sort((a, b) => b.score - a.score);
-    return scored.slice(0, 8).map((s) => s.p);
-  }
-
-  async function runOcr(dataUrl: string) {
-    setPhase("processing");
-    setError(null);
-    try {
-      const { default: Tesseract } = await import("tesseract.js");
-      const result = await Tesseract.recognize(dataUrl, "eng+hin");
-      const text = result.data.text || "";
-      const found = findMatches(text);
-      setMatches(found);
-      setPhase("results");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not read the label. Please try again.");
-      setPhase("results");
-      setMatches([]);
-    }
-  }
-
-  async function capture() {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
-
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-    await runOcr(dataUrl);
-  }
-
-  function onFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) {
       onClose();
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const dataUrl = reader.result as string;
-      runOcr(dataUrl);
+      const base64 = dataUrl.split(",")[1];
+      try {
+        const matchIds = await askGemini(base64);
+        const found = matchIds
+          .map((id) => products.find((p) => p.id === id))
+          .filter((p): p is Product => !!p);
+        setMatches(found);
+      } catch {
+        setMatches([]);
+      }
+      setPhase("results");
     };
     reader.readAsDataURL(file);
   }
@@ -164,6 +185,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
   function retake() {
     setError(null);
     setMatches([]);
+    firedRef.current = false;
     if (mode === "gallery") {
       setTimeout(() => fileInputRef.current?.click(), 100);
       setPhase("manual");
@@ -187,73 +209,76 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
         onChange={onFileChosen}
       />
 
-      <div className="flex items-center justify-between px-4 py-3">
-        <p className="font-display text-sm font-semibold text-white">
-          {mode === "gallery" ? "Upload from Gallery" : "Match by Photo"}
-        </p>
-        <button
-          onClick={onClose}
-          aria-label="Close"
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white backdrop-blur-md active:scale-90"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
       {phase === "camera" && mode === "camera" ? (
-        <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-black">
-          <div className="relative aspect-[3/4] max-h-full w-full max-w-md overflow-hidden rounded-2xl bg-black">
-            <video
-              ref={videoRef}
-              playsInline
-              muted
-              autoPlay
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-            <div className="pointer-events-none absolute inset-6 rounded-2xl border-2 border-dashed border-white/50" />
+        <div className="relative flex-1 overflow-hidden bg-black">
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            autoPlay
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-md active:scale-90"
+          >
+            <X className="h-5 w-5" />
+          </button>
+
+          <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full bg-black/50 px-4 py-2 backdrop-blur-md">
+            <p className="font-display text-xs font-semibold tracking-wide text-white/90">
+              Match by Photo (AI)
+            </p>
           </div>
+
+          <div
+            className="pointer-events-none absolute inset-x-8 top-1/2 -translate-y-1/2 rounded-2xl border-2 border-dashed border-white/50"
+            style={{ height: "32%" }}
+          />
+
           {error ? (
-            <div className="absolute inset-x-4 bottom-24 rounded-xl bg-white p-4 text-sm text-red-600 shadow-lg">
+            <div className="absolute inset-x-4 bottom-24 z-10 rounded-xl bg-white p-4 text-sm text-red-600 shadow-lg">
               {error}
             </div>
           ) : (
-            <p className="absolute inset-x-0 bottom-24 text-center text-xs font-medium text-white/80">
-              Frame the product clearly, then tap the shutter
-            </p>
+            <div className="absolute inset-x-0 bottom-10 z-10 flex flex-col items-center gap-3 px-6">
+              <div className="flex items-center gap-2 rounded-full bg-black/50 px-4 py-2 backdrop-blur-md">
+                {scanning ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" /> : null}
+                <p className="text-xs font-medium text-white/90">
+                  Hold product steady — AI will open it automatically
+                </p>
+              </div>
+              <Button variant="secondary" size="sm" onClick={() => setPhase("manual")}>
+                <Search className="h-4 w-4" /> Find by name instead
+              </Button>
+            </div>
           )}
-          <div className="absolute inset-x-0 bottom-6 flex items-center justify-center gap-4">
-            <Button variant="secondary" size="sm" onClick={() => setPhase("manual")}>
-              <Search className="h-4 w-4" /> Find by name
-            </Button>
-            <button
-              onClick={capture}
-              aria-label="Take photo"
-              className="flex h-16 w-16 items-center justify-center rounded-full border-4 border-white bg-white/20 backdrop-blur-md active:scale-90"
-            >
-              <span className="h-12 w-12 rounded-full bg-white" />
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {phase === "processing" ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-white">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-white/80">Reading the product...</p>
         </div>
       ) : null}
 
       {phase === "results" ? (
         <div className="flex flex-1 flex-col overflow-hidden bg-background">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <p className="font-display text-sm font-semibold">Match by Photo</p>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-secondary active:scale-90"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
           <div className="border-b border-border p-4">
             {matches.length > 0 ? (
               <p className="text-sm text-muted-foreground">
-                Found {matches.length} possible match{matches.length > 1 ? "es" : ""}. Tap the
+                AI found {matches.length} possible match{matches.length > 1 ? "es" : ""}. Tap the
                 correct one.
               </p>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Couldn't confidently guess that product. Retake the photo or find it by name.
+                AI couldn't confidently match that product. Retake the photo or find it by name.
               </p>
             )}
           </div>
@@ -283,8 +308,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
 
           <div className="flex gap-2 border-t border-border p-4">
             <Button variant="outline" className="flex-1" onClick={retake}>
-              {mode === "gallery" ? <Upload className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
-              {mode === "gallery" ? "Choose another photo" : "Retake photo"}
+              Retake / Rescan
             </Button>
             <Button variant="hero" className="flex-1" onClick={() => setPhase("manual")}>
               <Search className="h-4 w-4" /> Find by name
@@ -295,6 +319,16 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
 
       {phase === "manual" ? (
         <div className="flex flex-1 flex-col overflow-hidden bg-background">
+          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <p className="font-display text-sm font-semibold">Find by name</p>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-secondary active:scale-90"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
           <div className="border-b border-border p-4">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -340,11 +374,11 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
           <div className="border-t border-border p-4">
             {mode === "gallery" ? (
               <Button variant="outline" className="w-full" onClick={() => fileInputRef.current?.click()}>
-                <Upload className="h-4 w-4" /> Choose photo from gallery
+                Choose photo from gallery
               </Button>
             ) : (
               <Button variant="outline" className="w-full" onClick={retake}>
-                <Camera className="h-4 w-4" /> Back to camera
+                Back to camera
               </Button>
             )}
           </div>
