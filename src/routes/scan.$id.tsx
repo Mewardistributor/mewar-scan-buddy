@@ -183,6 +183,27 @@ function ScanScreen() {
     });
   }, [products, search, priceFilter]);
 
+  const lastAutoOpenedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const q = search.trim();
+    const priceQ = priceFilter.trim();
+    // Only auto-open when BOTH name and price are typed, and they narrow
+    // it down to exactly one product — avoids accidentally jumping into
+    // edit while the user is still typing a name alone.
+    if (!q || !priceQ) {
+      lastAutoOpenedRef.current = null;
+      return;
+    }
+    if (filtered.length === 1 && !modalOpen) {
+      const p = filtered[0];
+      if (lastAutoOpenedRef.current !== p.id) {
+        lastAutoOpenedRef.current = p.id;
+        openProduct(p);
+      }
+    }
+  }, [filtered, search, priceFilter, modalOpen]);
+
   function openProduct(p: Product) {
     if (p.status === "match") setReadOnly(p);
     else setActive(p);
