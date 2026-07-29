@@ -94,6 +94,7 @@ export type Chalan = {
   boxes: string | null;
   remarks: string | null;
   driver_id: string | null;
+  vehicle_km: number | null;
   status: "pending" | "dispatched" | "delivered" | "verified";
   source_file_name: string | null;
   uploaded_by: string | null;
