@@ -235,7 +235,9 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
   }
 
   const manualResults = manualQuery.trim()
-    ? products.filter((p) => normalize(p.product_name).includes(normalize(manualQuery))).slice(0, 20)
+    ? products
+        .filter((p) => normalize(p.product_name ?? "").includes(normalize(manualQuery)))
+        .slice(0, 20)
     : [];
 
   return (
