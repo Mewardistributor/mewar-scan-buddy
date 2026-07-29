@@ -38,6 +38,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
   const [matches, setMatches] = useState<Product[]>([]);
   const [manualQuery, setManualQuery] = useState("");
   const [scanning, setScanning] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
 
   useEffect(() => {
     const original = document.body.style.overflow;
@@ -110,23 +111,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
     }
   }
 
-  // Picks the rear camera least likely to be an ultra-zoomed telephoto lens,
-  // same approach as the working barcode CameraScanner.
-  async function pickBackCameraDeviceId(): Promise<string | null> {
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const cams = devices.filter((d) => d.kind === "videoinput");
-      if (!cams.length) return null;
-      const back = cams.filter((c) => /back|rear|environment/i.test(c.label));
-      const pool = back.length ? back : cams;
-      const preferred = pool.find((c) => /wide|main/i.test(c.label) && !/tele/i.test(c.label));
-      const avoidTele = pool.find((c) => !/tele|zoom/i.test(c.label));
-      return (preferred || avoidTele || pool[0]).deviceId || null;
-    } catch {
-      return null;
-    }
-  }
-
   useEffect(() => {
     if (mode === "gallery") {
       setTimeout(() => fileInputRef.current?.click(), 100);
@@ -135,6 +119,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
     if (phase !== "camera") return;
     let cancelled = false;
     firedRef.current = false;
+    setVideoReady(false);
 
     async function startCamera() {
       try {
@@ -148,59 +133,23 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
         }
 
         streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-        scanTimerRef.current = setInterval(scanFrameOnce, SCAN_INTERVAL_MS);
-      } catch (e) {
-        if (!cancelled) {
-          setError(
-            e instanceof Error
-              ? e.message
-              : "Could not start the camera. Please allow camera access."
-          );
-        }
-      }
-    }
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
 
-        const constraints: MediaStreamConstraints = {
-          video: deviceId
-            ? { ...baseVideoConstraints, deviceId: { exact: deviceId } }
-            : { ...baseVideoConstraints, facingMode: { ideal: "environment" } },
-        };
-
-        let stream: MediaStream;
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-        } catch {
-          // Fallback: simplest possible request if advanced constraints/deviceId rejected
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: "environment" } },
+          await new Promise<void>((resolve) => {
+            video.onloadedmetadata = () => resolve();
+            setTimeout(resolve, 2000); // safety timeout
           });
-        }
 
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-
-        // If the camera supports manual zoom control, explicitly force it to 1x (no zoom).
-        const [track] = stream.getVideoTracks();
-        const caps: any = track.getCapabilities?.();
-        if (caps?.zoom) {
           try {
-            await track.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] } as any);
+            await video.play();
+            setVideoReady(true);
           } catch {
-            /* not supported on this device, ignore */
+            // Autoplay may be blocked without a user gesture on some browsers.
           }
         }
 
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
         scanTimerRef.current = setInterval(scanFrameOnce, SCAN_INTERVAL_MS);
       } catch (e) {
         if (!cancelled) {
@@ -276,14 +225,24 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
       {phase === "camera" && mode === "camera" ? (
         <div className="relative flex-1 overflow-hidden bg-black">
           <video
-  ref={videoRef}
-  playsInline
-  muted
-  autoPlay
-  disablePictureInPicture
-  controlsList="nodownload noplaybackrate nofullscreen noremoteplayback"
-  className="absolute inset-0 h-full w-full object-contain bg-black"
-/>
+            ref={videoRef}
+            playsInline
+            muted
+            autoPlay
+            disablePictureInPicture
+            controlsList="nodownload noplaybackrate nofullscreen noremoteplayback"
+            className="absolute inset-0 h-full w-full object-contain bg-black"
+          />
+
+          {!videoReady && !error ? (
+            <div className="absolute inset-0 z-[5] grid place-items-center bg-black/60 text-white">
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="h-7 w-7 animate-spin text-primary" />
+                <p className="text-xs text-white/70">Starting camera...</p>
+              </div>
+            </div>
+          ) : null}
+
           <button
             onClick={onClose}
             aria-label="Close"
