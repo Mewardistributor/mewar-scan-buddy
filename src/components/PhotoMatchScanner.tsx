@@ -110,6 +110,23 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
     }
   }
 
+  // Picks the rear camera least likely to be an ultra-zoomed telephoto lens,
+  // same approach as the working barcode CameraScanner.
+  async function pickBackCameraDeviceId(): Promise<string | null> {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter((d) => d.kind === "videoinput");
+      if (!cams.length) return null;
+      const back = cams.filter((c) => /back|rear|environment/i.test(c.label));
+      const pool = back.length ? back : cams;
+      const preferred = pool.find((c) => /wide|main/i.test(c.label) && !/tele/i.test(c.label));
+      const avoidTele = pool.find((c) => !/tele|zoom/i.test(c.label));
+      return (preferred || avoidTele || pool[0]).deviceId || null;
+    } catch {
+      return null;
+    }
+  }
+
   useEffect(() => {
     if (mode === "gallery") {
       setTimeout(() => fileInputRef.current?.click(), 100);
@@ -121,17 +138,46 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
 
     async function startCamera() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-        });
+        const deviceId = await pickBackCameraDeviceId();
+
+        const baseVideoConstraints: MediaTrackConstraints = {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          advanced: [{ zoom: 1 } as any],
+        };
+
+        const constraints: MediaStreamConstraints = {
+          video: deviceId
+            ? { ...baseVideoConstraints, deviceId: { exact: deviceId } }
+            : { ...baseVideoConstraints, facingMode: { ideal: "environment" } },
+        };
+
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch {
+          // Fallback: simplest possible request if advanced constraints/deviceId rejected
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: "environment" } },
+          });
+        }
+
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
+
+        // If the camera supports manual zoom control, explicitly force it to 1x (no zoom).
+        const [track] = stream.getVideoTracks();
+        const caps: any = track.getCapabilities?.();
+        if (caps?.zoom) {
+          try {
+            await track.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] } as any);
+          } catch {
+            /* not supported on this device, ignore */
+          }
+        }
+
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
