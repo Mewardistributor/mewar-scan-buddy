@@ -75,6 +75,7 @@ function ScanScreen() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
+  const [priceFilter, setPriceFilter] = useState("");
   const [camera, setCamera] = useState(false);
   const [photoMatch, setPhotoMatch] = useState(false);
   const [photoGallery, setPhotoGallery] = useState(false);
@@ -168,13 +169,19 @@ function ScanScreen() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter(
-      (p) =>
+    const priceQ = priceFilter.trim();
+    return products.filter((p) => {
+      const nameMatch =
+        !q ||
         (p.product_name ?? "").toLowerCase().includes(q) ||
-        (p.barcode ?? "").toLowerCase().includes(q),
-    );
-  }, [products, search]);
+        (p.barcode ?? "").toLowerCase().includes(q);
+      const priceMatch =
+        !priceQ ||
+        String(p.required_mrp ?? "").includes(priceQ) ||
+        String(p.completed_mrp ?? "").includes(priceQ);
+      return nameMatch && priceMatch;
+    });
+  }, [products, search, priceFilter]);
 
   function openProduct(p: Product) {
     if (p.status === "match") setReadOnly(p);
@@ -296,15 +303,9 @@ function ScanScreen() {
           </Button>
         </div>
       ) : (
-        <div className="grid gap-2 sm:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2">
           <Button variant="hero" size="lg" onClick={() => setCamera(true)}>
             <Camera className="h-5 w-5" /> Scan with Camera
-          </Button>
-          <Button variant="outline" size="lg" onClick={() => setPhotoMatch(true)}>
-            <ImagePlus className="h-5 w-5" /> Match by Photo
-          </Button>
-          <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
-            <ImageIcon className="h-5 w-5" /> Upload from Gallery
           </Button>
           <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
             <Keyboard className="h-4 w-4 text-primary" />
@@ -314,13 +315,22 @@ function ScanScreen() {
       )}
 
       <section className="surface-card space-y-3 p-4">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="h-11 pl-9"
+              placeholder="Search product name or barcode"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
           <Input
-            className="h-11 pl-9"
-            placeholder="Search product name or barcode"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            className="h-11 w-24"
+            inputMode="decimal"
+            placeholder="₹ Price"
+            value={priceFilter}
+            onChange={(e) => setPriceFilter(e.target.value)}
           />
         </div>
         {filtered.length === 0 ? (
