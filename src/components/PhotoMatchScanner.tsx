@@ -143,7 +143,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
         const baseVideoConstraints: MediaTrackConstraints = {
           width: { ideal: 1280 },
           height: { ideal: 720 },
-          advanced: [{ zoom: 1 } as any],
         };
 
         const constraints: MediaStreamConstraints = {
