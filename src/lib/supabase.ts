@@ -60,3 +60,25 @@ export function computeStatus(
   if (compBox > reqBox || compPcs > reqPcs) return "excess";
   return "short";
 }
+export type Bill = {
+  id: string;
+  shop_name: string;
+  owner_name: string | null;
+  bill_number: string;
+  bill_date: string | null;
+  total_amount: number;
+  source_file_name: string | null;
+  uploaded_by: string | null;
+  status: "active" | "cancelled";
+  created_at: string;
+};
+
+export type BillItem = {
+  id: string;
+  bill_id: string;
+  product_name: string;
+  cases: number;
+  pieces: number;
+  amount: number;
+  created_at: string;
+};
