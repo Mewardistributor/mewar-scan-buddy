@@ -1,8 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Search, ChevronLeft, ChevronRight, FileDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
 import { AppShell, Spinner, EmptyState } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,7 @@ function VerificationScreen() {
   const [selectedDriver, setSelectedDriver] = useState<string>("");
   const [vehicleKm, setVehicleKm] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (user && user.role !== "admin") navigate({ to: "/" });
@@ -113,6 +115,76 @@ function VerificationScreen() {
     refetch();
   }
 
+  async function exportVerifiedExcel() {
+    setExporting(true);
+    try {
+      const { data: verifiedChalans, error: chalanErr } = await supabase
+        .from("chalans")
+        .select("*")
+        .eq("status", "verified")
+        .order("chalan_date", { ascending: true });
+      if (chalanErr) throw chalanErr;
+
+      const rows = (verifiedChalans ?? []) as Chalan[];
+      if (rows.length === 0) {
+        toast.error("No verified chalans found to export");
+        setExporting(false);
+        return;
+      }
+
+      const chalanIds = rows.map((c) => c.id);
+      const { data: verifications, error: verErr } = await supabase
+        .from("shop_verification")
+        .select("*")
+        .in("chalan_id", chalanIds);
+      if (verErr) throw verErr;
+
+      const verifiedByIds = Array.from(
+        new Set((verifications ?? []).map((v: any) => v.verified_by).filter(Boolean))
+      );
+      let usersMap: Record<string, string> = {};
+      if (verifiedByIds.length > 0) {
+        const { data: usersData, error: usersErr } = await supabase
+          .from("users")
+          .select("id, username")
+          .in("id", verifiedByIds);
+        if (usersErr) throw usersErr;
+        usersMap = Object.fromEntries((usersData ?? []).map((u: any) => [u.id, u.username]));
+      }
+
+      const verMap = Object.fromEntries((verifications ?? []).map((v: any) => [v.chalan_id, v]));
+
+      const excelRows = rows.map((c, i) => {
+        const v = verMap[c.id];
+        return {
+          "SNo": c.sno ?? i + 1,
+          "Bill No": c.bill_number,
+          "Date": c.chalan_date ?? "",
+          "Party Name": c.party_name,
+          "Bill Value": c.bill_value,
+          "Boxes": c.boxes ?? "",
+          "Remarks": c.remarks ?? "",
+          "Verified": v ? "Yes" : "No",
+          "Cases": v?.total_cases ?? "",
+          "Pieces": v?.total_pieces ?? "",
+          "Verification Date": v?.updated_at ? new Date(v.updated_at).toLocaleDateString() : "",
+          "Verified By": v?.verified_by ? usersMap[v.verified_by] ?? "" : "",
+        };
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(excelRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Verified Chalans");
+      const fileName = `Verified_Chalans_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+      toast.success(`Exported ${excelRows.length} verified chalans`);
+    } catch (err: any) {
+      toast.error(`Export failed: ${err.message ?? err}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   if (loadingChalans || loadingDrivers) return <Spinner label="Loading verification data..." />;
 
   return (
@@ -122,6 +194,9 @@ function VerificationScreen() {
           <ArrowLeft className="h-4 w-4" /> Dashboard
         </Button>
         <h1 className="font-display text-lg font-semibold">Verification Dashboard</h1>
+        <Button variant="outline" size="sm" onClick={exportVerifiedExcel} disabled={exporting}>
+          {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />} Export Verified
+        </Button>
       </div>
 
       <section className="surface-card space-y-3 p-4">
