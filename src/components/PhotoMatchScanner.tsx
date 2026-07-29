@@ -264,12 +264,15 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
           />
 
           {!videoReady && !error ? (
-            <div className="absolute inset-0 z-[5] grid place-items-center bg-black/60 text-white">
+            <button
+              onClick={() => videoRef.current?.play().catch(() => {})}
+              className="absolute inset-0 z-[5] grid place-items-center bg-black/60 text-white"
+            >
               <div className="flex flex-col items-center gap-3">
                 <Loader2 className="h-7 w-7 animate-spin text-primary" />
-                <p className="text-xs text-white/70">Starting camera...</p>
+                <p className="text-xs text-white/70">Starting camera... tap if it stays black</p>
               </div>
-            </div>
+            </button>
           ) : null}
 
           <button
