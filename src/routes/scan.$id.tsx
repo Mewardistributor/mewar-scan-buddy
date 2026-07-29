@@ -10,6 +10,7 @@ import {
   Loader2,
   Search,
   ImagePlus,
+  Image as ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, EmptyState, Spinner } from "@/components/AppShell";
@@ -75,6 +76,7 @@ function ScanScreen() {
   const [search, setSearch] = useState("");
   const [camera, setCamera] = useState(false);
   const [photoMatch, setPhotoMatch] = useState(false);
+  const [photoGallery, setPhotoGallery] = useState(false);
   const [active, setActive] = useState<Product | null>(null);
   const [readOnly, setReadOnly] = useState<Product | null>(null);
   const [confirmDone, setConfirmDone] = useState(false);
@@ -112,8 +114,7 @@ function ScanScreen() {
   // Summaries created from a sheet without a barcode column are photo-match only.
   const photoOnly = products.length > 0 && products.every((p) => !(p.barcode ?? "").trim());
 
-  const modalOpen = camera || photoMatch || !!active || !!readOnly || confirmDone;
-
+  const modalOpen = camera || photoMatch || photoGallery || !!active || !!readOnly || confirmDone;
 
   const handleBarcode = useCallback(
     (raw: string) => {
@@ -135,6 +136,7 @@ function ScanScreen() {
 
   const handlePhotoSelect = useCallback((found: Product) => {
     setPhotoMatch(false);
+    setPhotoGallery(false);
     if (found.status === "match") {
       setReadOnly(found);
     } else {
@@ -270,16 +272,24 @@ function ScanScreen() {
       </section>
 
       {photoOnly ? (
-        <Button variant="hero" size="lg" className="w-full" onClick={() => setPhotoMatch(true)}>
-          <ImagePlus className="h-5 w-5" /> Match by Photo
-        </Button>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button variant="hero" size="lg" onClick={() => setPhotoMatch(true)}>
+            <ImagePlus className="h-5 w-5" /> Match by Photo
+          </Button>
+          <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
+            <ImageIcon className="h-5 w-5" /> Upload from Gallery
+          </Button>
+        </div>
       ) : (
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-4">
           <Button variant="hero" size="lg" onClick={() => setCamera(true)}>
             <Camera className="h-5 w-5" /> Scan with Camera
           </Button>
           <Button variant="outline" size="lg" onClick={() => setPhotoMatch(true)}>
             <ImagePlus className="h-5 w-5" /> Match by Photo
+          </Button>
+          <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
+            <ImageIcon className="h-5 w-5" /> Upload from Gallery
           </Button>
           <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
             <Keyboard className="h-4 w-4 text-primary" />
@@ -287,7 +297,6 @@ function ScanScreen() {
           </div>
         </div>
       )}
-
 
       <section className="surface-card space-y-3 p-4">
         <div className="relative">
@@ -320,7 +329,6 @@ function ScanScreen() {
                       {photoOnly ? "" : `${p.barcode} · `}Req {p.required_box ?? 0} Box /{" "}
                       {p.required_pcs ?? 0} Pcs
                     </span>
-
                   </span>
                   <StatusBadge status={p.status} />
                 </button>
@@ -344,6 +352,15 @@ function ScanScreen() {
         <PhotoMatchScanner
           products={products}
           onClose={() => setPhotoMatch(false)}
+          onSelect={handlePhotoSelect}
+        />
+      ) : null}
+
+      {photoGallery ? (
+        <PhotoMatchScanner
+          mode="gallery"
+          products={products}
+          onClose={() => setPhotoGallery(false)}
           onSelect={handlePhotoSelect}
         />
       ) : null}
@@ -487,7 +504,6 @@ function ProductCard({
         {product.barcode ? (
           <p className="-mt-2 font-mono text-xs text-muted-foreground">{product.barcode}</p>
         ) : null}
-
 
         <ReadRow
           label="Required"
