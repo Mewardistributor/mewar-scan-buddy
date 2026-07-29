@@ -102,20 +102,21 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
         // via facingMode. Only use a specific deviceId once the user
         // explicitly taps "Switch Camera" — picking cams[0] directly can
         // accidentally select a telephoto/zoom lens on some phones.
+        // No forced resolution and no manual zoom-capability tweaking —
+        // both were found to cause an unwanted zoomed/blurry picture on
+        // some devices/webcams.
         const target = cameraIndex > 0 ? cams[cameraIndex] : undefined;
         const baseConstraints: MediaStreamConstraints = {
           video: target
-            ? { deviceId: { exact: target.deviceId }, width: { ideal: 1280 }, height: { ideal: 960 } }
-            : { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 960 } },
+            ? { deviceId: { exact: target.deviceId } }
+            : { facingMode: { ideal: "environment" } },
         };
 
         let stream: MediaStream;
         try {
           stream = await navigator.mediaDevices.getUserMedia(baseConstraints);
         } catch {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 960 } },
-          });
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
         }
 
         if (cancelled) {
@@ -125,15 +126,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
 
         const [track] = stream.getVideoTracks();
         trackRef.current = track;
-
-        try {
-          const caps: any = track.getCapabilities ? track.getCapabilities() : {};
-          if (caps && caps.zoom && typeof caps.zoom.min === "number") {
-            await (track as any).applyConstraints({ advanced: [{ zoom: caps.zoom.min }] });
-          }
-        } catch {
-          /* ignore */
-        }
 
         streamRef.current = stream;
         if (videoRef.current) {
