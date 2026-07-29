@@ -9,12 +9,15 @@ import {
   Keyboard,
   Loader2,
   Search,
+  ImagePlus,
+  Image as ImageIcon,
   AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, EmptyState, Spinner } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { CameraScanner } from "@/components/CameraScanner";
+import { PhotoMatchScanner } from "@/components/PhotoMatchScanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -73,6 +76,8 @@ function ScanScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
   const [camera, setCamera] = useState(false);
+  const [photoMatch, setPhotoMatch] = useState(false);
+  const [photoGallery, setPhotoGallery] = useState(false);
   const [active, setActive] = useState<Product | null>(null);
   const [readOnly, setReadOnly] = useState<Product | null>(null);
   const [confirmDone, setConfirmDone] = useState(false);
@@ -108,7 +113,10 @@ function ScanScreen() {
   const completed = total - counts.pending;
   const progress = total ? Math.round((completed / total) * 100) : 0;
 
-  const modalOpen = camera || !!active || !!readOnly || confirmDone;
+  // Summaries created from a sheet without a barcode column are photo-match only.
+  const photoOnly = products.length > 0 && products.every((p) => !(p.barcode ?? "").trim());
+
+  const modalOpen = camera || photoMatch || photoGallery || !!active || !!readOnly || confirmDone;
 
   const handleBarcode = useCallback(
     (raw: string) => {
@@ -128,9 +136,18 @@ function ScanScreen() {
     [products],
   );
 
-  // External USB / Bluetooth scanner: rapid keystrokes ending in Enter.
+  const handlePhotoSelect = useCallback((found: Product) => {
+    setPhotoMatch(false);
+    setPhotoGallery(false);
+    if (found.status === "match") {
+      setReadOnly(found);
+    } else {
+      setActive(found);
+    }
+  }, []);
+
   useEffect(() => {
-    if (modalOpen) return;
+    if (modalOpen || photoOnly) return;
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
@@ -147,7 +164,7 @@ function ScanScreen() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [modalOpen, handleBarcode]);
+  }, [modalOpen, photoOnly, handleBarcode]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -269,15 +286,32 @@ function ScanScreen() {
         ) : null}
       </section>
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        <Button variant="hero" size="lg" onClick={() => setCamera(true)}>
-          <Camera className="h-5 w-5" /> Scan with Camera
-        </Button>
-        <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-          <Keyboard className="h-4 w-4 text-primary" />
-          USB / Bluetooth scanner ready — just scan
+      {photoOnly ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button variant="hero" size="lg" onClick={() => setPhotoMatch(true)}>
+            <ImagePlus className="h-5 w-5" /> Match by Photo
+          </Button>
+          <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
+            <ImageIcon className="h-5 w-5" /> Upload from Gallery
+          </Button>
         </div>
-      </div>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-4">
+          <Button variant="hero" size="lg" onClick={() => setCamera(true)}>
+            <Camera className="h-5 w-5" /> Scan with Camera
+          </Button>
+          <Button variant="outline" size="lg" onClick={() => setPhotoMatch(true)}>
+            <ImagePlus className="h-5 w-5" /> Match by Photo
+          </Button>
+          <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
+            <ImageIcon className="h-5 w-5" /> Upload from Gallery
+          </Button>
+          <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+            <Keyboard className="h-4 w-4 text-primary" />
+            USB / Bluetooth scanner ready — just scan
+          </div>
+        </div>
+      )}
 
       <section className="surface-card space-y-3 p-4">
         <div className="relative">
@@ -307,7 +341,8 @@ function ScanScreen() {
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{p.product_name}</span>
                     <span className="block font-mono text-xs text-muted-foreground">
-                      {p.barcode} · Req {p.required_box ?? 0} Box / {p.required_pcs ?? 0} Pcs
+                      {photoOnly ? "" : `${p.barcode} · `}Req {p.required_box ?? 0} Box /{" "}
+                      {p.required_pcs ?? 0} Pcs
                     </span>
                   </span>
                   <StatusBadge status={p.status} />
@@ -325,6 +360,24 @@ function ScanScreen() {
             setCamera(false);
             handleBarcode(code);
           }}
+        />
+      ) : null}
+
+      {photoMatch ? (
+        <PhotoMatchScanner
+          mode="camera"
+          products={products}
+          onClose={() => setPhotoMatch(false)}
+          onSelect={handlePhotoSelect}
+        />
+      ) : null}
+
+      {photoGallery ? (
+        <PhotoMatchScanner
+          mode="gallery"
+          products={products}
+          onClose={() => setPhotoGallery(false)}
+          onSelect={handlePhotoSelect}
         />
       ) : null}
 
