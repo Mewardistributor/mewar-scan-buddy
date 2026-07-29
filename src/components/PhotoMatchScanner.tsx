@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, Search, X, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { supabase } from "@/lib/supabase";
 import type { Product } from "@/lib/supabase";
+import { matchProductByPhoto } from "@/lib/match-product.functions";
 
 type Props = {
   products: Product[];
@@ -30,6 +30,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
   const scanTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const busyRef = useRef(false);
   const firedRef = useRef(false);
+  const cooldownUntilRef = useRef(0);
 
   const [phase, setPhase] = useState<"camera" | "results" | "manual">(
     mode === "gallery" ? "manual" : "camera"
@@ -77,6 +78,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
 
   async function scanFrameOnce() {
     if (busyRef.current || firedRef.current) return;
+    if (Date.now() < cooldownUntilRef.current) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas || video.readyState < 2) return;
