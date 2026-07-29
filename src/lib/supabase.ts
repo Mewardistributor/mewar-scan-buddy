@@ -99,3 +99,20 @@ export type Chalan = {
   uploaded_by: string | null;
   created_at: string;
 };
+export type MatchingRun = {
+  id: string;
+  run_by: string | null;
+  total_chalans: number;
+  matched_count: number;
+  unmatched_count: number;
+  created_at: string;
+};
+
+export type MatchingResult = {
+  id: string;
+  matching_run_id: string;
+  chalan_id: string;
+  bill_id: string | null;
+  match_method: "bill_number" | "shop_and_date" | "shop_only" | "unmatched";
+  created_at: string;
+};
