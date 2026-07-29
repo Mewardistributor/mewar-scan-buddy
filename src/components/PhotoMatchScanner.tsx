@@ -138,12 +138,31 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
 
     async function startCamera() {
       try {
-        const deviceId = await pickBackCameraDeviceId();
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+        });
 
-        const baseVideoConstraints: MediaTrackConstraints = {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        };
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+        scanTimerRef.current = setInterval(scanFrameOnce, SCAN_INTERVAL_MS);
+      } catch (e) {
+        if (!cancelled) {
+          setError(
+            e instanceof Error
+              ? e.message
+              : "Could not start the camera. Please allow camera access."
+          );
+        }
+      }
+    }
 
         const constraints: MediaStreamConstraints = {
           video: deviceId
