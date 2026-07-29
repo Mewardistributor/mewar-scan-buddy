@@ -72,9 +72,9 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-            aspectRatio: { ideal: 16 / 9 },
+            width: { ideal: 1080 },
+            height: { ideal: 1440 },
+            aspectRatio: { ideal: 3 / 4 },
           },
         });
         if (cancelled) {
@@ -201,15 +201,17 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
       </div>
 
       {phase === "camera" && mode === "camera" ? (
-        <div className="relative flex-1 overflow-hidden bg-black">
-          <video
-            ref={videoRef}
-            playsInline
-            muted
-            autoPlay
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-          <div className="pointer-events-none absolute inset-6 rounded-2xl border-2 border-dashed border-white/50" />
+        <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-black">
+          <div className="relative aspect-[3/4] max-h-full w-full max-w-md overflow-hidden rounded-2xl bg-black">
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              autoPlay
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            <div className="pointer-events-none absolute inset-6 rounded-2xl border-2 border-dashed border-white/50" />
+          </div>
           {error ? (
             <div className="absolute inset-x-4 bottom-24 rounded-xl bg-white p-4 text-sm text-red-600 shadow-lg">
               {error}
