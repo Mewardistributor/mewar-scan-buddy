@@ -258,13 +258,14 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
       {phase === "camera" && mode === "camera" ? (
         <div className="relative flex-1 overflow-hidden bg-black">
           <video
-            ref={videoRef}
-            playsInline
-            muted
-            autoPlay
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-
+  ref={videoRef}
+  playsInline
+  muted
+  autoPlay
+  disablePictureInPicture
+  controlsList="nodownload noplaybackrate nofullscreen noremoteplayback"
+  className="absolute inset-0 h-full w-full object-contain bg-black"
+/>
           <button
             onClick={onClose}
             aria-label="Close"
