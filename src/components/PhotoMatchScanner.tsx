@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Image as ImageIcon, Loader2, RotateCcw, Search, X, CheckCircle2 } from "lucide-react";
+import { Camera, Image as ImageIcon, Loader2, RotateCcw, Search, X, CheckCircle2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Product } from "@/lib/supabase";
+import { supabase, type Product } from "@/lib/supabase";
 
 type Props = {
   products: Product[];
@@ -21,25 +21,6 @@ function normalize(text: string) {
     .trim();
 }
 
-function scoreMatch(ocrText: string, productName: string) {
-  const ocrWords = new Set(normalize(ocrText).split(" ").filter((w) => w.length > 1));
-  const nameWords = normalize(productName).split(" ").filter((w) => w.length > 1);
-  if (nameWords.length === 0 || ocrWords.size === 0) return 0;
-  let hits = 0;
-  for (const w of nameWords) {
-    if (ocrWords.has(w)) hits++;
-    else {
-      for (const ow of ocrWords) {
-        if (ow.length > 3 && (ow.includes(w) || w.includes(ow))) {
-          hits += 0.5;
-          break;
-        }
-      }
-    }
-  }
-  return hits / nameWords.length;
-}
-
 export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera" }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -48,7 +29,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [phase, setPhase] = useState<"camera" | "processing" | "results" | "manual">("camera");
   const [error, setError] = useState<string | null>(null);
-  const [ocrText, setOcrText] = useState("");
   const [matches, setMatches] = useState<Product[]>([]);
   const [manualQuery, setManualQuery] = useState("");
   const [noMatch, setNoMatch] = useState(false);
@@ -56,8 +36,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
   const [backCameras, setBackCameras] = useState<MediaDeviceInfo[]>([]);
   const [cameraIndex, setCameraIndex] = useState(0);
 
-  // When opened directly for gallery upload, skip camera access entirely
-  // and open the native photo picker right away.
   const [pendingGalleryPick, setPendingGalleryPick] = useState(mode === "gallery");
 
   useEffect(() => {
@@ -101,8 +79,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
         const devices = await navigator.mediaDevices.enumerateDevices();
         const cams = devices.filter((d) => d.kind === "videoinput");
         if (!cams.length) return [];
-        const pool = cams;
-        const sorted = [...pool].sort((a, b) => {
+        const sorted = [...cams].sort((a, b) => {
           const aWide = /wide|main/i.test(a.label) && !/tele/i.test(a.label) ? 0 : 1;
           const bWide = /wide|main/i.test(b.label) && !/tele/i.test(b.label) ? 0 : 1;
           return aWide - bWide;
@@ -115,19 +92,16 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
 
     async function startCamera() {
       try {
-        // Default camera (index 0): let the browser pick its own default
-        // back camera via facingMode, same as the barcode scanner does.
-        // This avoids accidentally selecting a telephoto/zoom lens, which
-        // happens on some phones when we pick a device by enumeration
-        // order instead of letting the browser choose.
         let cams = backCameras;
         if (cams.length === 0) {
           cams = await discoverBackCameras();
           if (!cancelled) setBackCameras(cams);
         }
 
-        // Only use a specific deviceId once the user has explicitly
-        // switched cameras (cameraIndex > 0).
+        // Default camera: let the browser pick its own default back camera
+        // via facingMode. Only use a specific deviceId once the user
+        // explicitly taps "Switch Camera" — picking cams[0] directly can
+        // accidentally select a telephoto/zoom lens on some phones.
         const target = cameraIndex > 0 ? cams[cameraIndex] : undefined;
         const baseConstraints: MediaStreamConstraints = {
           video: target
@@ -152,15 +126,13 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
         const [track] = stream.getVideoTracks();
         trackRef.current = track;
 
-        // Make sure the camera starts at its natural (1x / no-zoom) level,
-        // rather than whatever zoom level it happened to power on at.
         try {
           const caps: any = track.getCapabilities ? track.getCapabilities() : {};
           if (caps && caps.zoom && typeof caps.zoom.min === "number") {
             await (track as any).applyConstraints({ advanced: [{ zoom: caps.zoom.min }] });
           }
         } catch {
-          /* ignore, not all devices/browsers support this */
+          /* ignore */
         }
 
         streamRef.current = stream;
@@ -194,18 +166,33 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
     setCameraIndex((i) => (i + 1) % backCameras.length);
   }
 
-  function findMatches(text: string): Product[] {
-    const scored = products
-      .map((p) => ({ p, score: scoreMatch(text, p.product_name ?? "") }))
-      .filter((s) => s.score >= 0.34)
-      .sort((a, b) => b.score - a.score);
-    return scored.slice(0, 8).map((s) => s.p);
-  }
-
   function stopStream() {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     trackRef.current = null;
+  }
+
+  // Resizes the photo down to a reasonable size and returns raw base64
+  // (no "data:image/jpeg;base64," prefix) — keeps the request fast/cheap.
+  function resizeToBase64(dataUrl: string, maxDim = 1024): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("Canvas not supported"));
+        ctx.drawImage(img, 0, 0, w, h);
+        const jpeg = canvas.toDataURL("image/jpeg", 0.85);
+        resolve(jpeg.split(",")[1] ?? "");
+      };
+      img.onerror = () => reject(new Error("Could not process image"));
+      img.src = dataUrl;
+    });
   }
 
   async function processImage(dataUrl: string) {
@@ -215,12 +202,25 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
     setNoMatch(false);
 
     try {
-      const { default: Tesseract } = await import("tesseract.js");
-      const result = await Tesseract.recognize(dataUrl, "eng+hin");
-      const text = result.data.text || "";
-      setOcrText(text);
-      const found = findMatches(text);
+      const base64 = await resizeToBase64(dataUrl);
+      const candidates = products
+        .filter((p) => p.status !== "removed")
+        .map((p) => ({ id: p.id, name: p.product_name ?? "" }));
+
+      const { data, error: fnError } = await supabase.functions.invoke("match-product", {
+        body: { image: base64, products: candidates },
+      });
+
+      if (fnError) throw new Error(fnError.message || "AI match request failed");
+      if (data?.error) throw new Error(data.error);
+
+      const ids: string[] = Array.isArray(data?.matches) ? data.matches : [];
+      const found = ids
+        .map((id) => products.find((p) => p.id === id))
+        .filter((p): p is Product => !!p);
+
       setMatches(found);
+
       if (found.length === 1) {
         onSelect(found[0]);
         return;
@@ -232,7 +232,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
       }
       setPhase("results");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not read the label. Please try again.");
+      setError(e instanceof Error ? e.message : "Could not identify the product. Please try again.");
       setPhase("results");
       setMatches([]);
     }
@@ -248,7 +248,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
     await processImage(dataUrl);
   }
 
@@ -271,7 +271,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
 
   function retake() {
     setError(null);
-    setOcrText("");
     setMatches([]);
     setNoMatch(false);
     setPhase("camera");
@@ -295,7 +294,9 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
       />
 
       <div className="flex items-center justify-between px-4 py-3">
-        <p className="font-display text-sm font-semibold text-white">Match by Photo</p>
+        <p className="flex items-center gap-1.5 font-display text-sm font-semibold text-white">
+          <Sparkles className="h-4 w-4 text-primary" /> Match by Photo (AI)
+        </p>
         <button
           onClick={onClose}
           aria-label="Close"
@@ -314,12 +315,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
 
       {phase === "camera" && !pendingGalleryPick ? (
         <div className="relative flex-1 overflow-hidden bg-black">
-          <video
-            ref={videoRef}
-            playsInline
-            muted
-            className="h-full w-full object-cover"
-          />
+          <video ref={videoRef} playsInline muted className="h-full w-full object-cover" />
           <div className="pointer-events-none absolute inset-6 rounded-2xl border-2 border-dashed border-white/50" />
           {error ? (
             <div className="absolute inset-x-4 bottom-32 rounded-xl bg-white p-4 text-sm text-red-600 shadow-lg">
@@ -327,7 +323,7 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
             </div>
           ) : (
             <p className="absolute inset-x-0 bottom-32 text-center text-xs font-medium text-white/80">
-              Frame the product name / label clearly
+              Frame the whole product clearly
             </p>
           )}
 
@@ -361,21 +357,22 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
       {phase === "processing" ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-white">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-white/80">Reading the label...</p>
+          <p className="text-sm text-white/80">AI is identifying the product...</p>
         </div>
       ) : null}
 
       {phase === "results" ? (
         <div className="flex flex-1 flex-col overflow-hidden bg-background">
           <div className="border-b border-border p-4">
-            {matches.length > 0 ? (
+            {error ? (
+              <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+            ) : matches.length > 0 ? (
               <p className="text-sm text-muted-foreground">
-                Found {matches.length} possible match{matches.length > 1 ? "es" : ""}. Tap the
-                correct one.
+                Found {matches.length} possible match{matches.length > 1 ? "es" : ""}. Tap the correct one.
               </p>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Couldn't confidently match that label. Retake the photo or find it by name.
+                Couldn't confidently identify that product. Retake the photo or find it by name.
               </p>
             )}
           </div>
@@ -425,7 +422,6 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
                 No match found — search manually below.
               </p>
             ) : null}
-
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
