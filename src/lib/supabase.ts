@@ -124,3 +124,25 @@ export type Driver = {
   status: "active" | "inactive";
   created_at: string;
 };
+export type ShopVerification = {
+  id: string;
+  chalan_id: string;
+  verified_by: string | null;
+  verification_status: "pending" | "match" | "mismatch";
+  total_cases: number | null;
+  total_pieces: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type VerificationItem = {
+  id: string;
+  shop_verification_id: string;
+  bill_item_id: string | null;
+  product_name: string;
+  expected_cases: number;
+  expected_pieces: number;
+  is_checked: boolean;
+  created_at: string;
+};
