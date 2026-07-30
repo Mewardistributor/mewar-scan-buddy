@@ -102,6 +102,7 @@ function VerificationScreen() {
       .update({
         driver_id: selectedDriver,
         vehicle_km: vehicleKm ? Number(vehicleKm) : null,
+        route_locked: false,
       })
       .in(
         "id",
