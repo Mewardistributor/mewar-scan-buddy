@@ -20,7 +20,8 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 export type AppUser = {
   id: string;
   username: string;
-  role: "admin" | "uploader";
+  role: "admin" | "uploader" | "driver";
+  driver_id: string | null;
 };
 
 export type Summary = {
