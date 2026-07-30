@@ -1,11 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { Header } from "@/components/Header";
 import { Login } from "@/components/Login";
 import { Splash } from "@/components/Splash";
 import WarehouseMascot from "@/components/WarehouseMascot";
-
 let splashShown = false;
 function splashAlreadyShown() {
   if (splashShown) return true;
@@ -14,7 +14,16 @@ function splashAlreadyShown() {
 }
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, ready } = useAuth();
+  const navigate = useNavigate();
   const [splashDone, setSplashDone] = useState(splashAlreadyShown);
+
+  useEffect(() => {
+    if (!ready || !user) return;
+    if (user.role === "driver" && !window.location.pathname.startsWith("/driver")) {
+      navigate({ to: "/driver/dashboard" });
+    }
+  }, [user, ready, navigate]);
+
   if (!splashDone) {
     return (
       <Splash
