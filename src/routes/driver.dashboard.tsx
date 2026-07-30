@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Truck, XCircle } from "lucide-react";
+import { Truck } from "lucide-react";
 import { AppShell, EmptyState, Spinner } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
@@ -69,39 +69,23 @@ function DriverDashboard() {
         />
       ) : (
         <div className="space-y-3">
-          {rows.map((c) => (
-            <div key={c.id} className="surface-card flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          {rows.map((c, i) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => navigate({ to: "/driver/task/$chalanId", params: { chalanId: c.id } })}
+              className="surface-card flex w-full items-center justify-between p-4 text-left transition-colors hover:bg-secondary/40"
+            >
               <div>
-                <p className="font-medium">{c.party_name}</p>
+                <p className="font-medium">Task {i + 1}</p>
                 <p className="text-sm text-muted-foreground">
-                  Bill {c.bill_number} · ₹{c.bill_value}
+                  {c.party_name} · ₹{c.bill_value}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusColor(c)}`}>
-                  {statusLabel(c)}
-                </span>
-                {c.delivery_status === "pending" ? (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="hero"
-                      onClick={() => navigate({ to: "/driver/done/$chalanId", params: { chalanId: c.id } })}
-                    >
-                      <CheckCircle2 className="h-4 w-4" /> Done
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-destructive hover:bg-destructive/10"
-                      onClick={() => navigate({ to: "/driver/not-done/$chalanId", params: { chalanId: c.id } })}
-                    >
-                      <XCircle className="h-4 w-4" /> Not Done
-                    </Button>
-                  </>
-                ) : null}
-              </div>
-            </div>
+              <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusColor(c)}`}>
+                {statusLabel(c)}
+              </span>
+            </button>
           ))}
         </div>
       )}
@@ -119,5 +103,10 @@ function DriverDashboard() {
         </div>
       ) : null}
     </div>
+ );
+}
+
+
+    
   );
 }
