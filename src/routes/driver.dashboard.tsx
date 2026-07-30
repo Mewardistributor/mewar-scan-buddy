@@ -105,8 +105,3 @@ function DriverDashboard() {
     </div>
  );
 }
-
-
-    
-  );
-}
