@@ -121,8 +121,8 @@ function DoneScreen() {
         .eq("id", chalanId);
       if (error) throw error;
 
-      toast.success("Marked as completed");
-      navigate({ to: "/driver/dashboard" });
+      toast.success("Details saved");
+      navigate({ to: "/driver/task/$chalanId", params: { chalanId } });
     } catch (err: any) {
       toast.error(`Could not save: ${err.message ?? err}`);
     } finally {
