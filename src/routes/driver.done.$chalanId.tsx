@@ -39,6 +39,24 @@ function DoneScreen() {
   const [customDenoms, setCustomDenoms] = useState<{ label: string; qty: string }[]>([]);
   const [photoBase64, setPhotoBase64] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [prefilled, setPrefilled] = useState(false);
+
+  if (chalan && !prefilled) {
+    setPrefilled(true);
+    if (chalan.amount_received != null) setAmountReceived(String(chalan.amount_received));
+    if (chalan.payment_type) setPaymentType(chalan.payment_type);
+    if (chalan.cash_denominations) {
+      const known: Record<string, string> = {};
+      const extra: { label: string; qty: string }[] = [];
+      Object.entries(chalan.cash_denominations).forEach(([k, v]) => {
+        if (DEFAULT_DENOMS.includes(Number(k))) known[k] = String(v);
+        else extra.push({ label: k, qty: String(v) });
+      });
+      setDenoms((prev) => ({ ...prev, ...known }));
+      if (extra.length) setCustomDenoms(extra);
+    }
+    if (chalan.payment_photo_url) setPhotoBase64(chalan.payment_photo_url);
+  }
 
   const denomTotal =
     DEFAULT_DENOMS.reduce((sum, d) => sum + d * (Number(denoms[String(d)]) || 0), 0) +
