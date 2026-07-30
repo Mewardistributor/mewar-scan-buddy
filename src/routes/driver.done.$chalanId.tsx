@@ -132,9 +132,27 @@ function DoneScreen() {
 
   if (isLoading || !chalan) return <Spinner label="Loading shop details..." />;
 
+  if (chalan.route_locked) {
+    return (
+      <div className="space-y-5">
+        <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/driver/dashboard" })} className="-ml-2">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
+        <div className="surface-card p-4 text-sm text-muted-foreground">
+          This route has already been submitted and is locked.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
-      <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/driver/dashboard" })} className="-ml-2">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => navigate({ to: "/driver/task/$chalanId", params: { chalanId } })}
+        className="-ml-2"
+      >
         <ArrowLeft className="h-4 w-4" /> Back
       </Button>
 
