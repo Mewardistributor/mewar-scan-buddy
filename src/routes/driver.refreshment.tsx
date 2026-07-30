@@ -45,6 +45,12 @@ function RefreshmentScreen() {
       const completedCount = rows.filter((c) => c.delivery_status === "completed").length;
       const notDeliveredCount = rows.filter((c) => c.delivery_status === "not_delivered").length;
 
+      await supabase
+        .from("chalans")
+        .update({ route_locked: true })
+        .eq("driver_id", user!.driver_id)
+        .neq("delivery_status", "pending");
+
       const { error } = await supabase.from("route_completions").insert({
         driver_id: user!.driver_id,
         driver_name: user!.username,
