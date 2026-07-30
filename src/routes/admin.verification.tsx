@@ -96,6 +96,11 @@ function VerificationScreen() {
       toast.error("Please select a driver first");
       return;
     }
+    const unassigned = (chalans ?? []).filter((c) => !c.driver_id);
+    if (unassigned.length === 0) {
+      toast.error("All shops already have a driver assigned. Use 'Change Driver' on a specific row to reassign.");
+      return;
+    }
     setSaving(true);
     const { error } = await supabase
       .from("chalans")
@@ -106,14 +111,28 @@ function VerificationScreen() {
       })
       .in(
         "id",
-        (chalans ?? []).map((c) => c.id)
+        unassigned.map((c) => c.id)
       );
     setSaving(false);
     if (error) {
       toast.error(`Could not assign driver: ${error.message}`);
       return;
     }
-    toast.success("Driver and vehicle KM assigned to all shops");
+    toast.success(`Driver assigned to ${unassigned.length} unassigned shop(s)`);
+    refetch();
+  }
+
+  async function changeDriverForChalan(chalanId: string, newDriverId: string) {
+    if (!newDriverId) return;
+    const { error } = await supabase
+      .from("chalans")
+      .update({ driver_id: newDriverId, route_locked: false })
+      .eq("id", chalanId);
+    if (error) {
+      toast.error(`Could not change driver: ${error.message}`);
+      return;
+    }
+    toast.success("Driver changed for this shop");
     refetch();
   }
 
@@ -338,6 +357,7 @@ function VerificationScreen() {
                     <th className="py-2 pr-2">Bill</th>
                     <th className="py-2 pr-2">Date</th>
                     <th className="py-2 pr-2 text-right">Amount</th>
+                    <th className="py-2 pr-2">Driver</th>
                     <th className="py-2 pl-2 text-right">Status</th>
                   </tr>
                 </thead>
@@ -356,6 +376,20 @@ function VerificationScreen() {
                       <td className="py-3 pr-2 font-mono text-xs">{c.bill_number}</td>
                       <td className="py-3 pr-2 text-muted-foreground">{c.chalan_date ?? "—"}</td>
                       <td className="py-3 pr-2 text-right font-semibold">₹{c.bill_value}</td>
+                      <td className="py-3 pr-2" onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={c.driver_id ?? ""}
+                          onChange={(e) => changeDriverForChalan(c.id, e.target.value)}
+                          className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                        >
+                          <option value="">Unassigned</option>
+                          {(drivers ?? []).map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
                       <td className="py-3 pl-2 text-right">
                         <span className={`rounded-full px-2 py-1 text-xs font-medium ${statusColor(c.status)}`}>
                           {c.status}
