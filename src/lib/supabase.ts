@@ -107,6 +107,7 @@ export type Chalan = {
   payment_photo_url: string | null;
   not_delivered_reason: string | null;
   delivered_at: string | null;
+  route_locked: boolean;
 };
 export type MatchingRun = {
   id: string;
