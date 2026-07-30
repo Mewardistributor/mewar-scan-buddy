@@ -161,6 +161,9 @@ function Dashboard() {
           <Button asChild variant="outline" size="sm">
             <Link to="/admin/drivers">Drivers</Link>
           </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/admin/notifications">Notifications</Link>
+          </Button>
         </section>
       ) : null}
       <Tabs defaultValue="all">
