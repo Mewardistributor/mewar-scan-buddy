@@ -100,6 +100,13 @@ export type Chalan = {
   source_file_name: string | null;
   uploaded_by: string | null;
   created_at: string;
+  delivery_status: "pending" | "completed" | "not_delivered";
+  amount_received: number | null;
+  payment_type: "cash" | "online" | "cheque" | null;
+  cash_denominations: Record<string, number> | null;
+  payment_photo_url: string | null;
+  not_delivered_reason: string | null;
+  delivered_at: string | null;
 };
 export type MatchingRun = {
   id: string;
