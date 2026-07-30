@@ -144,6 +144,25 @@ function Dashboard() {
 
       </section>
 
+      {user?.role === "admin" ? (
+        <section className="surface-card grid gap-2 p-4 sm:grid-cols-3 md:grid-cols-5">
+          <Button asChild variant="outline" size="sm">
+            <Link to="/admin/bill-upload">Bill Upload</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/admin/chalan-upload">Chalan Upload</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/admin/matching">Matching</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/admin/verification">Verification</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/admin/drivers">Drivers</Link>
+          </Button>
+        </section>
+      ) : null}
       <Tabs defaultValue="all">
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="all" className="flex-1 sm:flex-none">
