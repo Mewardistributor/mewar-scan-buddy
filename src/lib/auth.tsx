@@ -35,7 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!u || !p) return { ok: false, error: "Please enter username and password" };
         const { data, error } = await supabase
           .from("users")
-          .select("id, username, role, password")
+          .select("id, username, role, password, driver_id")
           .eq("username", u)
           .limit(50);
         if (error) return { ok: false, error: error.message };
@@ -43,10 +43,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           (row) => String(row.username) === u && String(row.password) === p,
         );
         if (!match) return { ok: false, error: "Invalid username or password" };
+        const role: AppUser["role"] =
+          match.role === "admin" ? "admin" : match.role === "driver" ? "driver" : "uploader";
         const appUser: AppUser = {
           id: String(match.id),
           username: String(match.username),
-          role: match.role === "admin" ? "admin" : "uploader",
+          role,
+          driver_id: match.driver_id ? String(match.driver_id) : null,
         };
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(appUser));
         setUser(appUser);
