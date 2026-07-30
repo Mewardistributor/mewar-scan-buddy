@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, Truck, UserPlus } from "lucide-react";
+import { ArrowLeft, Loader2, Trash2, Truck, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, Spinner, EmptyState } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -59,7 +59,28 @@ function DriversScreen() {
     },
   });
 
-  const loginedDriverIds = new Set((logins ?? []).map((l) => l.driver_id).filter(Boolean));
+ const loginedDriverIds = new Set((logins ?? []).map((l) => l.driver_id).filter(Boolean));
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  async function deleteDriver(driverId: string, driverName: string) {
+    if (!window.confirm(`Delete "${driverName}"? This will remove the driver and their login. This cannot be undone.`)) {
+      return;
+    }
+    setDeletingId(driverId);
+    try {
+      const { error: userErr } = await supabase.from("users").delete().eq("driver_id", driverId);
+      if (userErr) throw userErr;
+      const { error: driverErr } = await supabase.from("drivers").delete().eq("id", driverId);
+      if (driverErr) throw driverErr;
+      toast.success(`${driverName} deleted`);
+      qc.invalidateQueries({ queryKey: ["all-drivers"] });
+      qc.invalidateQueries({ queryKey: ["driver-logins"] });
+    } catch (err: any) {
+      toast.error(`Could not delete: ${err.message ?? err}`);
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   async function createDriverLogin() {
     if (!name.trim() || !username.trim() || !password.trim()) {
