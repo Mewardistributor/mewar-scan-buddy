@@ -39,6 +39,19 @@ function NotDoneScreen() {
   const [selectedReason, setSelectedReason] = useState("");
   const [customReason, setCustomReason] = useState("");
   const [saving, setSaving] = useState(false);
+  const [prefilled, setPrefilled] = useState(false);
+
+  if (chalan && !prefilled) {
+    setPrefilled(true);
+    if (chalan.not_delivered_reason) {
+      const isQuick = QUICK_REASONS.includes(chalan.not_delivered_reason);
+      if (isQuick) setSelectedReason(chalan.not_delivered_reason);
+      else {
+        setSelectedReason("Other");
+        setCustomReason(chalan.not_delivered_reason);
+      }
+    }
+  }
 
   async function saveNotDone() {
     const finalReason =
@@ -60,8 +73,8 @@ function NotDoneScreen() {
         .eq("id", chalanId);
       if (error) throw error;
 
-      toast.success("Marked as Not Delivered");
-      navigate({ to: "/driver/dashboard" });
+      toast.success("Reason saved");
+      navigate({ to: "/driver/task/$chalanId", params: { chalanId } });
     } catch (err: any) {
       toast.error(`Could not save: ${err.message ?? err}`);
     } finally {
@@ -71,9 +84,27 @@ function NotDoneScreen() {
 
   if (isLoading || !chalan) return <Spinner label="Loading shop details..." />;
 
+  if (chalan.route_locked) {
+    return (
+      <div className="space-y-5">
+        <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/driver/dashboard" })} className="-ml-2">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
+        <div className="surface-card p-4 text-sm text-muted-foreground">
+          This route has already been submitted and is locked.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
-      <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/driver/dashboard" })} className="-ml-2">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => navigate({ to: "/driver/task/$chalanId", params: { chalanId } })}
+        className="-ml-2"
+      >
         <ArrowLeft className="h-4 w-4" /> Back
       </Button>
 
