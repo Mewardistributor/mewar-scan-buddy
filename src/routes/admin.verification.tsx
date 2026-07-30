@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Search, ChevronLeft, ChevronRight, FileDown, Loader2 } from "lucide-react";
+import { ArrowLeft, Search, ChevronLeft, ChevronRight, FileDown, FileSpreadsheet, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { AppShell, Spinner, EmptyState } from "@/components/AppShell";
@@ -43,6 +43,7 @@ function VerificationScreen() {
   const [vehicleKm, setVehicleKm] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportingDelivery, setExportingDelivery] = useState(false);
 
   useEffect(() => {
     if (user && user.role !== "admin") navigate({ to: "/" });
@@ -185,6 +186,57 @@ function VerificationScreen() {
     }
   }
 
+  async function exportDeliveryReport() {
+    setExportingDelivery(true);
+    try {
+      const { data: allChalans, error: chalanErr } = await supabase
+        .from("chalans")
+        .select("*")
+        .order("created_at", { ascending: true });
+      if (chalanErr) throw chalanErr;
+
+      const rows = (allChalans ?? []) as Chalan[];
+      const delivered = rows.filter((c) => c.delivery_status && c.delivery_status !== "pending");
+
+      if (delivered.length === 0) {
+        toast.error("No delivery attempts found yet");
+        setExportingDelivery(false);
+        return;
+      }
+
+      function formatDenoms(d: Record<string, number> | null) {
+        if (!d) return "";
+        return Object.entries(d)
+          .map(([note, qty]) => `₹${note} x ${qty}`)
+          .join(", ");
+      }
+
+      const excelRows = delivered.map((c) => ({
+        "Shop Name": c.party_name,
+        "Owner Name": (c as any).owner_name ?? "",
+        "Bill Number": c.bill_number,
+        "Bill Amount": c.bill_value,
+        "Amount Received": c.amount_received ?? "",
+        "Payment Type": c.payment_type ?? "",
+        "Cash Denominations": c.payment_type === "cash" ? formatDenoms(c.cash_denominations) : "",
+        "Photo Attached": c.payment_photo_url ? "Yes" : "No",
+        "Delivery Status": c.delivery_status === "completed" ? "Completed" : "Not Delivered",
+        "Reason (if not delivered)": c.not_delivered_reason ?? "",
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(excelRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Delivery Report");
+      const fileName = `Delivery_Report_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      XLSX.writeFile(workbook, fileName);
+      toast.success(`Exported ${excelRows.length} delivery records`);
+    } catch (err: any) {
+      toast.error(`Export failed: ${err.message ?? err}`);
+    } finally {
+      setExportingDelivery(false);
+    }
+  }
+
   if (loadingChalans || loadingDrivers) return <Spinner label="Loading verification data..." />;
 
   return (
@@ -194,9 +246,14 @@ function VerificationScreen() {
           <ArrowLeft className="h-4 w-4" /> Dashboard
         </Button>
         <h1 className="font-display text-lg font-semibold">Verification Dashboard</h1>
-        <Button variant="outline" size="sm" onClick={exportVerifiedExcel} disabled={exporting}>
-          {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />} Export Verified
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={exportVerifiedExcel} disabled={exporting}>
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />} Export Verified
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportDeliveryReport} disabled={exportingDelivery}>
+            {exportingDelivery ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />} Export Delivery Report
+          </Button>
+        </div>
       </div>
 
       <section className="surface-card space-y-3 p-4">
