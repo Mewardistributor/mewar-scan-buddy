@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Download, FileText, Loader2, RotateCcw, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, Spinner } from "@/components/AppShell";
@@ -41,18 +41,22 @@ function ReportPage() {
   );
 }
 
+function isMrpMismatch(p: Product) {
+  return p.status === "match" && (p.completed_mrp ?? p.required_mrp ?? 0) !== (p.required_mrp ?? 0);
+}
+
 function issueRank(p: Product) {
-  const mrpMismatch =
-    p.status === "match" && (p.completed_mrp ?? p.required_mrp ?? 0) !== (p.required_mrp ?? 0);
   if (p.status === "short" || p.status === "excess") return 0;
-  if (mrpMismatch) return 1;
+  if (isMrpMismatch(p)) return 1;
   if (p.status === "pending") return 2;
   if (p.status === "removed") return 3;
   return 4;
 }
 
+type ViewFilter = "issues_first" | "short" | "excess" | "mrp" | "pending" | "correct";
+
 function FinalReport() {
-  const [sortIssuesFirst, setSortIssuesFirst] = useState(true);
+  const [viewFilter, setViewFilter] = useState<ViewFilter>("issues_first");
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -92,9 +96,15 @@ function FinalReport() {
   const { summary, products } = data;
   const noBarcode = products.length > 0 && products.every((p) => !(p.barcode ?? "").trim());
 
-  const sortedProducts = sortIssuesFirst
-    ? [...products].sort((a, b) => issueRank(a) - issueRank(b))
-    : products;
+  const sortedProducts = (() => {
+    if (viewFilter === "issues_first") return [...products].sort((a, b) => issueRank(a) - issueRank(b));
+    if (viewFilter === "short") return products.filter((p) => p.status === "short");
+    if (viewFilter === "excess") return products.filter((p) => p.status === "excess");
+    if (viewFilter === "mrp") return products.filter((p) => isMrpMismatch(p));
+    if (viewFilter === "pending") return products.filter((p) => p.status === "pending");
+    if (viewFilter === "correct") return products.filter((p) => p.status === "match" && !isMrpMismatch(p));
+    return products;
+  })();
 
   const counts = {
     match: products.filter((p) => p.status === "match").length,
@@ -239,45 +249,54 @@ function FinalReport() {
       <section className="surface-card overflow-hidden p-0">
         <div className="flex items-center justify-between gap-2 border-b border-border p-4">
           <h2 className="font-display text-lg font-semibold">Products</h2>
-          <Button variant="outline" size="sm" onClick={() => setSortIssuesFirst((v) => !v)}>
-            {sortIssuesFirst ? "Sort: Issues First" : "Sort: Original Order"}
-          </Button>
+          <select
+            value={viewFilter}
+            onChange={(e) => setViewFilter(e.target.value as ViewFilter)}
+            className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+          >
+            <option value="issues_first">Issues First</option>
+            <option value="short">Short Only</option>
+            <option value="excess">Excess Only</option>
+            <option value="mrp">MRP Mismatch Only</option>
+            <option value="pending">Not Scanned Only</option>
+            <option value="correct">Correct Only</option>
+          </select>
         </div>
         <div className="divide-y divide-border">
-          {sortedProducts.map((p) => (
-            <div key={p.id} className="p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{p.product_name}</p>
-                  {p.barcode ? (
-                    <p className="font-mono text-xs text-muted-foreground">{p.barcode}</p>
-                  ) : null}
-
+          {sortedProducts.length === 0 ? (
+            <div className="p-6 text-center text-sm text-muted-foreground">No products match this filter.</div>
+          ) : (
+            sortedProducts.map((p) => (
+              <div key={p.id} className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{p.product_name}</p>
+                    {p.barcode ? (
+                      <p className="font-mono text-xs text-muted-foreground">{p.barcode}</p>
+                    ) : null}
+                  </div>
+                  <StatusBadge status={p.status} mrpMismatch={isMrpMismatch(p)} />
                 </div>
-                <StatusBadge
-                  status={p.status}
-                  mrpMismatch={(p.completed_mrp ?? p.required_mrp ?? 0) !== (p.required_mrp ?? 0)}
-                />
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                <p className="rounded-lg bg-secondary/70 px-3 py-2">
-                  <span className="text-xs text-muted-foreground">Required</span>
-                  <br />
-                  {p.required_box ?? 0} Box · {p.required_pcs ?? 0} Pcs · ₹{p.required_mrp ?? 0}
+                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                  <p className="rounded-lg bg-secondary/70 px-3 py-2">
+                    <span className="text-xs text-muted-foreground">Required</span>
+                    <br />
+                    {p.required_box ?? 0} Box · {p.required_pcs ?? 0} Pcs · ₹{p.required_mrp ?? 0}
+                  </p>
+                  <p className="rounded-lg bg-secondary/70 px-3 py-2">
+                    <span className="text-xs text-muted-foreground">Completed</span>
+                    <br />
+                    {p.completed_box ?? "—"} Box · {p.completed_pcs ?? "—"} Pcs · ₹
+                    {p.completed_mrp ?? "—"}
+                  </p>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {plainStatus(p)}
+                  {p.change_note && p.change_note !== "Not Scanned" ? ` · ${p.change_note}` : ""}
                 </p>
-                <p className="rounded-lg bg-secondary/70 px-3 py-2">
-                  <span className="text-xs text-muted-foreground">Completed</span>
-                  <br />
-                  {p.completed_box ?? "—"} Box · {p.completed_pcs ?? "—"} Pcs · ₹
-                  {p.completed_mrp ?? "—"}
-                </p>
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                {plainStatus(p)}
-                {p.change_note && p.change_note !== "Not Scanned" ? ` · ${p.change_note}` : ""}
-              </p>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </section>
     </div>
