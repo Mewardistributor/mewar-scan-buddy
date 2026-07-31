@@ -220,7 +220,7 @@ export async function downloadFinalReport(
 
     line(p.barcode ?? "", [p.product_name ?? "", reqMrp, reqBox, reqPcs]);
 
-    if (p.status === "match") {
+    if (p.status === "match" && fieldDiff(compMrp, reqMrp) === "match") {
       const row = line(p.barcode ?? "", ["CORRECT", compMrp, compBox, compPcs]);
       row.eachCell((cell) => {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREEN } };
