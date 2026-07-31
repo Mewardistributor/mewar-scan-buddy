@@ -244,9 +244,34 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
   }
 
   const manualResults = manualQuery.trim()
-    ? products
-        .filter((p) => normalize(p.product_name ?? "").includes(normalize(manualQuery)))
-        .slice(0, 20)
+    ? (() => {
+        const tokens = normalize(manualQuery).trim().split(/\s+/).filter(Boolean);
+        const prefix = tokens[0] ?? "";
+        const restTokens = tokens.slice(1);
+        const numericTokens = restTokens.filter((t) => /^\d+(\.\d+)?$/.test(t));
+        const textTokens = restTokens.filter((t) => !/^\d+(\.\d+)?$/.test(t));
+
+        const base = products.filter((p) => {
+          const name = normalize(p.product_name ?? "");
+          if (!name.startsWith(prefix)) return false;
+          for (const t of textTokens) {
+            if (!name.includes(t)) return false;
+          }
+          return true;
+        });
+
+        if (numericTokens.length === 0) return base.slice(0, 20);
+
+        const target = Number(numericTokens[numericTokens.length - 1]);
+        function closestDistance(p: (typeof products)[number]) {
+          const name = p.product_name ?? "";
+          const nums = Array.from(name.matchAll(/\d+(\.\d+)?/g)).map((m) => Number(m[0]));
+          if (nums.length === 0) return Infinity;
+          return Math.min(...nums.map((n) => Math.abs(n - target)));
+        }
+
+        return [...base].sort((a, b) => closestDistance(a) - closestDistance(b)).slice(0, 20);
+      })()
     : [];
 
   return (
