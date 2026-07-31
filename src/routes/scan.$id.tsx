@@ -371,7 +371,10 @@ function ScanScreen() {
                       {p.required_pcs ?? 0} Pcs
                     </span>
                   </span>
-                  <StatusBadge status={p.status} />
+                  <StatusBadge
+                    status={p.status}
+                    mrpMismatch={(p.completed_mrp ?? p.required_mrp ?? 0) !== (p.required_mrp ?? 0)}
+                  />
                 </button>
               </li>
             ))}
