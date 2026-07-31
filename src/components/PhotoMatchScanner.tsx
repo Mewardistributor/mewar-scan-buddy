@@ -263,14 +263,12 @@ export function PhotoMatchScanner({ products, onSelect, onClose, mode = "camera"
         if (numericTokens.length === 0) return base.slice(0, 20);
 
         const target = Number(numericTokens[numericTokens.length - 1]);
-        function closestDistance(p: (typeof products)[number]) {
-          const name = p.product_name ?? "";
-          const nums = Array.from(name.matchAll(/\d+(\.\d+)?/g)).map((m) => Number(m[0]));
-          if (nums.length === 0) return Infinity;
-          return Math.min(...nums.map((n) => Math.abs(n - target)));
+        function mrpDistance(p: (typeof products)[number]) {
+          if (p.required_mrp == null) return Infinity;
+          return Math.abs(p.required_mrp - target);
         }
 
-        return [...base].sort((a, b) => closestDistance(a) - closestDistance(b)).slice(0, 20);
+        return [...base].sort((a, b) => mrpDistance(a) - mrpDistance(b)).slice(0, 20);
       })()
     : [];
 
