@@ -168,28 +168,43 @@ function ScanScreen() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [modalOpen, photoOnly, handleBarcode]);
 
-  // Search: starting-letters match only.
-  // "cl 1" matches "Cloroform 1" (name starts with "cl", and "1" appears
-  // after it) but NOT something like "Coloro 42" (doesn't start with "cl").
-  // Barcode search still works as a plain prefix match in the same box.
+  // Search: starting-letters match on the first word. Any number typed after
+  // that is matched against the product's actual MRP (not text in the name),
+  // and used as a "closest guess" sort — it never hides products, it just
+  // brings the nearest-MRP match to the top. e.g. "lb 115" shows all "LB..."
+  // products with the one whose MRP is closest to 115 listed first.
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return products;
 
     const tokens = q.split(/\s+/).filter(Boolean);
+    const prefix = tokens[0];
+    const restTokens = tokens.slice(1);
+    const numericTokens = restTokens.filter((t) => /^\d+(\.\d+)?$/.test(t));
+    const textTokens = restTokens.filter((t) => !/^\d+(\.\d+)?$/.test(t));
 
-    return products.filter((p) => {
+    const base = products.filter((p) => {
       const name = (p.product_name ?? "").toLowerCase();
       const barcode = (p.barcode ?? "").toLowerCase();
 
       if (barcode && barcode.startsWith(q)) return true;
 
-      if (!name.startsWith(tokens[0])) return false;
-      for (let i = 1; i < tokens.length; i++) {
-        if (!name.includes(tokens[i])) return false;
+      if (!name.startsWith(prefix)) return false;
+      for (const t of textTokens) {
+        if (!name.includes(t)) return false;
       }
       return true;
     });
+
+    if (numericTokens.length === 0) return base;
+
+    const target = Number(numericTokens[numericTokens.length - 1]);
+    function mrpDistance(p: Product) {
+      if (p.required_mrp == null) return Infinity;
+      return Math.abs(p.required_mrp - target);
+    }
+
+    return [...base].sort((a, b) => mrpDistance(a) - mrpDistance(b));
   }, [products, search]);
 
   // Exactly one match while actively searching → auto-open its edit dialog.
