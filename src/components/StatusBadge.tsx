@@ -18,7 +18,14 @@ const labels: Record<ProductStatus, string> = {
 };
 
 
-export function StatusBadge({ status }: { status: ProductStatus }) {
+export function StatusBadge({ status, mrpMismatch }: { status: ProductStatus; mrpMismatch?: boolean }) {
+  if (status === "match" && mrpMismatch) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-warning/20 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-warning-foreground">
+        MRP Mismatch
+      </span>
+    );
+  }
   return (
     <span
       className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${styles[status]}`}
