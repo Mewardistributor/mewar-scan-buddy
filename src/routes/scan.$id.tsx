@@ -439,9 +439,22 @@ function ScanScreen() {
                 box={readOnly.completed_box}
                 pcs={readOnly.completed_pcs}
               />
-              <Button variant="hero" className="w-full" onClick={() => setReadOnly(null)}>
-                Back
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    const p = readOnly;
+                    setReadOnly(null);
+                    setActive(p);
+                  }}
+                >
+                  Edit
+                </Button>
+                <Button variant="hero" className="flex-1" onClick={() => setReadOnly(null)}>
+                  Back
+                </Button>
+              </div>
             </div>
           ) : null}
         </DialogContent>
