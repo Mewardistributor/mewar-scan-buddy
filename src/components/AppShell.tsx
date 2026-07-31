@@ -6,6 +6,7 @@ import { Header } from "@/components/Header";
 import { Login } from "@/components/Login";
 import { Splash } from "@/components/Splash";
 import WarehouseMascot from "@/components/WarehouseMascot";
+import { FloatingCalculator } from "@/components/FloatingCalculator";
 let splashShown = false;
 function splashAlreadyShown() {
   if (splashShown) return true;
@@ -50,6 +51,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {children}
       </main>
       <WarehouseMascot />
+      <FloatingCalculator />
     </div>
   );
 }
