@@ -56,6 +56,8 @@ export const Route = createFileRoute("/scan/$id")({
   component: ScanPage,
 });
 
+const VIEW_FILTER_OPTIONS = ["all", "issues_first", "short", "excess", "mrp", "pending", "correct"];
+
 function ScanPage() {
   return (
     <AppShell>
@@ -75,25 +77,23 @@ function ScanScreen() {
     }
   }, [user, navigate]);
 
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState([]);
   const [search, setSearch] = useState("");
-  const [viewFilter, setViewFilter] = useState
-    "all" | "issues_first" | "short" | "excess" | "mrp" | "pending" | "correct"
-  >("all");
+  const [viewFilter, setViewFilter] = useState("all");
   const [showAdd, setShowAdd] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [camera, setCamera] = useState(false);
   const [photoMatch, setPhotoMatch] = useState(false);
   const [photoGallery, setPhotoGallery] = useState(false);
-  const [active, setActive] = useState<Product | null>(null);
-  const [readOnly, setReadOnly] = useState<Product | null>(null);
+  const [active, setActive] = useState(null);
+  const [readOnly, setReadOnly] = useState(null);
   const [confirmDone, setConfirmDone] = useState(false);
   const [finishing, setFinishing] = useState(false);
-  const [flash, setFlash] = useState<string | null>(null);
+  const [flash, setFlash] = useState(null);
   const bufferRef = useRef("");
   const lastKeyRef = useRef(0);
-  const lastAutoOpenedRef = useRef<string | null>(null);
+  const lastAutoOpenedRef = useRef(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["scan", id],
@@ -105,7 +105,7 @@ function ScanScreen() {
       if (s.error) throw s.error;
       if (p.error) throw p.error;
       if (!s.data) throw new Error("SUMMARY_NOT_FOUND");
-      return { summary: s.data as Summary, products: (p.data ?? []) as Product[] };
+      return { summary: s.data, products: p.data ?? [] };
     },
   });
 
@@ -114,21 +114,21 @@ function ScanScreen() {
   }, [data]);
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { match: 0, short: 0, excess: 0, pending: 0 };
+    const c = { match: 0, short: 0, excess: 0, pending: 0 };
     for (const p of products) c[p.status] = (c[p.status] ?? 0) + 1;
-    return c as { match: number; short: number; excess: number; pending: number };
+    return c;
   }, [products]);
   const total = products.length;
   const completed = total - counts.pending;
   const progress = total ? Math.round((completed / total) * 100) : 0;
 
-  // Summaries created from a sheet without a barcode column are photo-match only.
   const photoOnly = products.length > 0 && products.every((p) => !(p.barcode ?? "").trim());
 
-  const modalOpen = camera || photoMatch || photoGallery || !!active || !!readOnly || confirmDone || showAdd || !!deleteTarget;
+  const modalOpen =
+    camera || photoMatch || photoGallery || !!active || !!readOnly || confirmDone || showAdd || !!deleteTarget;
 
   const handleBarcode = useCallback(
-    (raw: string) => {
+    (raw) => {
       const code = raw.trim();
       if (!code) return;
       const found = products.find((p) => (p.barcode ?? "").trim() === code);
@@ -145,7 +145,7 @@ function ScanScreen() {
     [products],
   );
 
-  const handlePhotoSelect = useCallback((found: Product) => {
+  const handlePhotoSelect = useCallback((found) => {
     setPhotoMatch(false);
     setPhotoGallery(false);
     if (found.status === "match") {
@@ -155,11 +155,10 @@ function ScanScreen() {
     }
   }, []);
 
-  // External USB / Bluetooth scanner: rapid keystrokes ending in Enter.
   useEffect(() => {
     if (modalOpen || photoOnly) return;
-    function onKeyDown(e: KeyboardEvent) {
-      const target = e.target as HTMLElement | null;
+    function onKeyDown(e) {
+      const target = e.target;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
       const now = Date.now();
       if (now - lastKeyRef.current > 120) bufferRef.current = "";
@@ -176,11 +175,6 @@ function ScanScreen() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [modalOpen, photoOnly, handleBarcode]);
 
-  // Search: starting-letters match on the first word. Any number typed after
-  // that is matched against the product's actual MRP (not text in the name),
-  // and used as a "closest guess" sort — it never hides products, it just
-  // brings the nearest-MRP match to the top. e.g. "lb 115" shows all "LB..."
-  // products with the one whose MRP is closest to 115 listed first.
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return products;
@@ -207,7 +201,7 @@ function ScanScreen() {
     if (numericTokens.length === 0) return base;
 
     const target = Number(numericTokens[numericTokens.length - 1]);
-    function mrpDistance(p: Product) {
+    function mrpDistance(p) {
       if (p.required_mrp == null) return Infinity;
       return Math.abs(p.required_mrp - target);
     }
@@ -215,10 +209,10 @@ function ScanScreen() {
     return [...base].sort((a, b) => mrpDistance(a) - mrpDistance(b));
   }, [products, search]);
 
-  function isMrpMismatch(p: Product) {
+  function isMrpMismatch(p) {
     return p.status === "match" && (p.completed_mrp ?? p.required_mrp ?? 0) !== (p.required_mrp ?? 0);
   }
-  function issueRank(p: Product) {
+  function issueRank(p) {
     if (p.status === "short" || p.status === "excess") return 0;
     if (isMrpMismatch(p)) return 1;
     if (p.status === "pending") return 2;
@@ -235,7 +229,6 @@ function ScanScreen() {
     if (viewFilter === "pending") return filtered.filter((p) => p.status === "pending");
     if (viewFilter === "correct") return filtered.filter((p) => p.status === "match" && !isMrpMismatch(p));
     return filtered;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered, viewFilter]);
 
   async function deleteProduct() {
@@ -257,7 +250,6 @@ function ScanScreen() {
     setDeleteTarget(null);
   }
 
-  // Exactly one match while actively searching → auto-open its edit dialog.
   useEffect(() => {
     if (!search.trim() || filtered.length !== 1 || modalOpen) {
       if (filtered.length !== 1) lastAutoOpenedRef.current = null;
@@ -269,12 +261,12 @@ function ScanScreen() {
     openProduct(p);
   }, [filtered, search, modalOpen]);
 
-  function openProduct(p: Product) {
+  function openProduct(p) {
     if (p.status === "match") setReadOnly(p);
     else setActive(p);
   }
 
-  function onSaved(updated: Product) {
+  function onSaved(updated) {
     const next = products.map((p) => (p.id === updated.id ? updated : p));
     setProducts(next);
     setActive(null);
@@ -316,7 +308,7 @@ function ScanScreen() {
   if (isLoading) return <Spinner label="Loading dispatch..." />;
 
   if (error) {
-    const isNotFound = (error as Error).message === "SUMMARY_NOT_FOUND";
+    const isNotFound = error.message === "SUMMARY_NOT_FOUND";
     return (
       <EmptyState
         icon={<AlertCircle className="h-6 w-6" />}
@@ -324,7 +316,7 @@ function ScanScreen() {
         description={
           isNotFound
             ? "It may have been deleted. Please go back to the dashboard and pick a summary from the list."
-            : (error as Error).message
+            : error.message
         }
         action={
           <Button variant="hero" onClick={() => navigate({ to: "/" })}>
@@ -370,7 +362,7 @@ function ScanScreen() {
             ["Pending", counts.pending, "text-muted-foreground"],
           ].map(([label, value, cls]) => (
             <div key={String(label)} className="rounded-xl bg-secondary/70 px-2 py-2">
-              <p className={`font-display text-lg font-semibold ${cls}`}>{value as number}</p>
+              <p className={`font-display text-lg font-semibold ${cls}`}>{value}</p>
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
             </div>
           ))}
@@ -417,7 +409,7 @@ function ScanScreen() {
         <div className="flex items-center gap-2">
           <select
             value={viewFilter}
-            onChange={(e) => setViewFilter(e.target.value as typeof viewFilter)}
+            onChange={(e) => setViewFilter(e.target.value)}
             className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
           >
             <option value="all">All Items</option>
@@ -615,17 +607,7 @@ function ScanScreen() {
   );
 }
 
-function ReadRow({
-  label,
-  mrp,
-  box,
-  pcs,
-}: {
-  label: string;
-  mrp: number | null;
-  box: number | null;
-  pcs: number | null;
-}) {
+function ReadRow({ label, mrp, box, pcs }) {
   return (
     <div className="rounded-xl bg-secondary/70 p-3">
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -638,7 +620,7 @@ function ReadRow({
           ["Pcs", pcs ?? "—"],
         ].map(([l, v]) => (
           <div key={String(l)}>
-            <p className="font-display text-base font-semibold">{v as string}</p>
+            <p className="font-display text-base font-semibold">{v}</p>
             <p className="text-[11px] text-muted-foreground">{l}</p>
           </div>
         ))}
@@ -647,15 +629,7 @@ function ReadRow({
   );
 }
 
-function AddItemDialog({
-  summaryId,
-  onClose,
-  onAdded,
-}: {
-  summaryId: string;
-  onClose: () => void;
-  onAdded: (p: Product) => void;
-}) {
+function AddItemDialog({ summaryId, onClose, onAdded }) {
   const [name, setName] = useState("");
   const [barcode, setBarcode] = useState("");
   const [mrp, setMrp] = useState("");
@@ -689,7 +663,7 @@ function AddItemDialog({
       return;
     }
     toast.success("Item added");
-    onAdded(data as Product);
+    onAdded(data);
   }
 
   return (
@@ -735,15 +709,7 @@ function AddItemDialog({
   );
 }
 
-function ProductCard({
-  product,
-  onCancel,
-  onSaved,
-}: {
-  product: Product;
-  onCancel: () => void;
-  onSaved: (p: Product) => void;
-}) {
+function ProductCard({ product, onCancel, onSaved }) {
   const [mrp, setMrp] = useState(String(product.completed_mrp ?? product.required_mrp ?? ""));
   const [box, setBox] = useState(product.completed_box === null ? "" : String(product.completed_box));
   const [pcs, setPcs] = useState(product.completed_pcs === null ? "" : String(product.completed_pcs));
@@ -766,7 +732,7 @@ function ProductCard({
       toast.error(`Could not save: ${error?.message ?? "unknown error"}`);
       return;
     }
-    onSaved(data as Product);
+    onSaved(data);
   }
 
   return (
