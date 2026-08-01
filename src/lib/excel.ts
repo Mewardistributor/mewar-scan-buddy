@@ -218,17 +218,12 @@ export async function downloadFinalReport(
     const compBox = p.completed_box ?? 0;
     const compPcs = p.completed_pcs ?? 0;
 
+    // Skip fully correct items entirely — final report only lists issues.
+    if (p.status === "match" && fieldDiff(compMrp, reqMrp) === "match") continue;
+
     line(p.barcode ?? "", [p.product_name ?? "", reqMrp, reqBox, reqPcs]);
 
-    if (p.status === "match" && fieldDiff(compMrp, reqMrp) === "match") {
-      const row = line(p.barcode ?? "", ["CORRECT", compMrp, compBox, compPcs]);
-      row.eachCell((cell) => {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREEN } };
-      });
-      const labelCell = row.getCell(c(1));
-      labelCell.font = { bold: true, size: 13 };
-      labelCell.alignment = { horizontal: "center", vertical: "middle" };
-    } else if (p.status === "pending") {
+    if (p.status === "pending") {
       const row = line(p.barcode ?? "", ["Not Scanned", "—", "—", "—"]);
       row.eachCell((cell) => {
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY } };
