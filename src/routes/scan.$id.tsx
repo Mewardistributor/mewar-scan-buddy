@@ -3,10 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Barcode,
   Camera,
   CheckCircle2,
   Flag,
   Keyboard,
+  Link2,
   Loader2,
   Search,
   ImagePlus,
@@ -34,7 +36,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { computeStatus, supabase, type Product, type Summary } from "@/lib/supabase";
+import {
+  computeStatus,
+  findBestNameMatch,
+  linkBarcodeToProduct,
+  lookupBarcodeMaster,
+  nameSimilarity,
+  supabase,
+} from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/scan/$id")({
@@ -55,8 +64,6 @@ export const Route = createFileRoute("/scan/$id")({
   }),
   component: ScanPage,
 });
-
-const VIEW_FILTER_OPTIONS = ["all", "issues_first", "short", "excess", "mrp", "pending", "correct"];
 
 function ScanPage() {
   return (
@@ -83,7 +90,12 @@ function ScanScreen() {
   const [showAdd, setShowAdd] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const [camera, setCamera] = useState(false);
+
+  // cameraMode: null | "verify" (normal barcode-summary scanning) |
+  // "master" (Scan Barcode quick action -> master lookup) |
+  // "productLink" (scan-to-link from inside the edit dialog)
+  const [cameraMode, setCameraMode] = useState(null);
+
   const [photoMatch, setPhotoMatch] = useState(false);
   const [photoGallery, setPhotoGallery] = useState(false);
   const [active, setActive] = useState(null);
@@ -94,6 +106,14 @@ function ScanScreen() {
   const bufferRef = useRef("");
   const lastKeyRef = useRef(0);
   const lastAutoOpenedRef = useRef(null);
+
+  // "Item not in data" assign flow — when a scanned barcode isn't linked
+  // to anything (or doesn't fuzzy-match anything in this summary).
+  const [assignFlow, setAssignFlow] = useState(null); // { barcode, suggestedName }
+
+  // Conflict warning — when scan-to-link (from ProductCard) hits a
+  // barcode already linked to a different product name.
+  const [linkConflict, setLinkConflict] = useState(null); // { barcode, existingName, productId, productName }
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["scan", id],
@@ -125,7 +145,16 @@ function ScanScreen() {
   const photoOnly = products.length > 0 && products.every((p) => !(p.barcode ?? "").trim());
 
   const modalOpen =
-    camera || photoMatch || photoGallery || !!active || !!readOnly || confirmDone || showAdd || !!deleteTarget;
+    cameraMode !== null ||
+    photoMatch ||
+    photoGallery ||
+    !!active ||
+    !!readOnly ||
+    confirmDone ||
+    showAdd ||
+    !!deleteTarget ||
+    !!assignFlow ||
+    !!linkConflict;
 
   const handleBarcode = useCallback(
     (raw) => {
@@ -154,6 +183,63 @@ function ScanScreen() {
       setActive(found);
     }
   }, []);
+
+  // ---- Master barcode scan (quick action, photoOnly toolbar) ----
+  async function handleMasterScan(code) {
+    setCameraMode(null);
+    try {
+      const existing = await lookupBarcodeMaster(code);
+      if (existing) {
+        const match = findBestNameMatch(products, existing.product_name);
+        if (match) {
+          if (match.status === "match") setReadOnly(match);
+          else setActive(match);
+          return;
+        }
+      }
+      // Not linked yet, or linked but nothing in THIS summary fuzzy-matches it.
+      setAssignFlow({ barcode: code, suggestedName: existing?.product_name ?? "" });
+    } catch (e) {
+      toast.error(`Lookup failed: ${e.message ?? e}`);
+    }
+  }
+
+  // ---- Scan-to-link (from inside the edit dialog, for one specific product) ----
+  async function handleProductLinkScan(code) {
+    setCameraMode(null);
+    if (!active) return;
+    try {
+      const existing = await lookupBarcodeMaster(code);
+      if (existing) {
+        const same = nameSimilarity(existing.product_name, active.product_name ?? "") >= 0.7;
+        if (!same) {
+          setLinkConflict({
+            barcode: code,
+            existingName: existing.product_name,
+            productId: active.id,
+            productName: active.product_name ?? "",
+          });
+          return;
+        }
+      }
+      await linkBarcodeToProduct(code, active.product_name ?? "");
+      toast.success(`Barcode linked to "${active.product_name}"`);
+    } catch (e) {
+      toast.error(`Could not link barcode: ${e.message ?? e}`);
+    }
+  }
+
+  async function confirmChangeLink() {
+    if (!linkConflict) return;
+    try {
+      await linkBarcodeToProduct(linkConflict.barcode, linkConflict.productName);
+      toast.success(`Barcode re-linked to "${linkConflict.productName}"`);
+    } catch (e) {
+      toast.error(`Could not change link: ${e.message ?? e}`);
+    } finally {
+      setLinkConflict(null);
+    }
+  }
 
   useEffect(() => {
     if (modalOpen || photoOnly) return;
@@ -375,17 +461,20 @@ function ScanScreen() {
       </section>
 
       {photoOnly ? (
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-3">
           <Button variant="hero" size="lg" onClick={() => setPhotoMatch(true)}>
             <ImagePlus className="h-5 w-5" /> Match by Photo
           </Button>
           <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
             <ImageIcon className="h-5 w-5" /> Upload from Gallery
           </Button>
+          <Button variant="outline" size="lg" onClick={() => setCameraMode("master")}>
+            <Barcode className="h-5 w-5" /> Scan Barcode
+          </Button>
         </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
-          <Button variant="hero" size="lg" onClick={() => setCamera(true)}>
+          <Button variant="hero" size="lg" onClick={() => setCameraMode("verify")}>
             <Camera className="h-5 w-5" /> Scan with Camera
           </Button>
           <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
@@ -467,14 +556,22 @@ function ScanScreen() {
         )}
       </section>
 
-      {camera ? (
+      {cameraMode === "verify" ? (
         <CameraScanner
-          onClose={() => setCamera(false)}
+          onClose={() => setCameraMode(null)}
           onDetected={(code) => {
-            setCamera(false);
+            setCameraMode(null);
             handleBarcode(code);
           }}
         />
+      ) : null}
+
+      {cameraMode === "master" ? (
+        <CameraScanner onClose={() => setCameraMode(null)} onDetected={handleMasterScan} />
+      ) : null}
+
+      {cameraMode === "productLink" ? (
+        <CameraScanner onClose={() => setCameraMode(null)} onDetected={handleProductLinkScan} />
       ) : null}
 
       {photoMatch ? (
@@ -496,7 +593,12 @@ function ScanScreen() {
       ) : null}
 
       {active ? (
-        <ProductCard product={active} onCancel={() => setActive(null)} onSaved={onSaved} />
+        <ProductCard
+          product={active}
+          onCancel={() => setActive(null)}
+          onSaved={onSaved}
+          onRequestScanLink={() => setCameraMode("productLink")}
+        />
       ) : null}
 
       <Dialog open={!!readOnly} onOpenChange={(o) => !o && setReadOnly(null)}>
@@ -555,6 +657,42 @@ function ScanScreen() {
           }}
         />
       ) : null}
+
+      {assignFlow ? (
+        <AssignFlowDialog
+          barcode={assignFlow.barcode}
+          suggestedName={assignFlow.suggestedName}
+          products={products}
+          onClose={() => setAssignFlow(null)}
+          onAssigned={(p) => {
+            setAssignFlow(null);
+            openProduct(p);
+          }}
+        />
+      ) : null}
+
+      <AlertDialog open={!!linkConflict} onOpenChange={(o) => !o && setLinkConflict(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Barcode already linked</AlertDialogTitle>
+            <AlertDialogDescription>
+              This barcode is currently linked to "{linkConflict?.existingName}". Change the link so it
+              points to "{linkConflict?.productName}" instead? The old link will be removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                confirmChangeLink();
+              }}
+            >
+              <Link2 className="h-4 w-4" /> Change Link
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !deleting && !o && setDeleteTarget(null)}>
         <AlertDialogContent>
@@ -709,7 +847,96 @@ function AddItemDialog({ summaryId, onClose, onAdded }) {
   );
 }
 
-function ProductCard({ product, onCancel, onSaved }) {
+// Shown when a scanned barcode is either brand-new, or already linked to
+// a name that doesn't fuzzy-match anything in THIS summary. User picks
+// the right product manually and assigns the scan to it permanently.
+function AssignFlowDialog({ barcode, suggestedName, products, onClose, onAssigned }) {
+  const [query, setQuery] = useState(suggestedName || "");
+  const [assigning, setAssigning] = useState(false);
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return products.slice(0, 30);
+    return products.filter((p) => (p.product_name ?? "").toLowerCase().includes(q)).slice(0, 30);
+  }, [products, query]);
+
+  async function assignTo(p) {
+    setAssigning(true);
+    try {
+      await linkBarcodeToProduct(barcode, p.product_name ?? "");
+      toast.success(`Barcode assigned to "${p.product_name}"`);
+      onAssigned(p);
+    } catch (e) {
+      toast.error(`Could not assign: ${e.message ?? e}`);
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && !assigning && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Item not in data</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="rounded-lg bg-secondary/70 px-3 py-2 font-mono text-xs text-muted-foreground">
+            Scanned: {barcode}
+          </p>
+          {suggestedName ? (
+            <p className="rounded-lg bg-primary/10 px-3 py-2 text-xs text-primary">
+              This barcode was last linked to: <span className="font-semibold">{suggestedName}</span>. Pick
+              the matching product below to (re)assign it.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              This barcode hasn't been linked to any product yet. Search and select the correct product
+              below to link it permanently.
+            </p>
+          )}
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              autoFocus
+              className="h-11 pl-9"
+              placeholder="Search product name..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <div className="max-h-72 space-y-2 overflow-y-auto">
+            {results.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">No products match.</p>
+            ) : (
+              results.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  disabled={assigning}
+                  onClick={() => assignTo(p)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-secondary/50 active:scale-[0.99] disabled:opacity-50"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{p.product_name}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Req {p.required_box ?? 0} Box / {p.required_pcs ?? 0} Pcs
+                    </span>
+                  </span>
+                  <Link2 className="h-5 w-5 shrink-0 text-primary" />
+                </button>
+              ))
+            )}
+          </div>
+          <Button variant="outline" className="w-full" onClick={onClose} disabled={assigning}>
+            Cancel
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ProductCard({ product, onCancel, onSaved, onRequestScanLink }) {
   const [mrp, setMrp] = useState(String(product.completed_mrp ?? product.required_mrp ?? ""));
   const [box, setBox] = useState(product.completed_box === null ? "" : String(product.completed_box));
   const [pcs, setPcs] = useState(product.completed_pcs === null ? "" : String(product.completed_pcs));
@@ -751,6 +978,12 @@ function ProductCard({ product, onCancel, onSaved }) {
           box={product.required_box}
           pcs={product.required_pcs}
         />
+
+        {!product.barcode ? (
+          <Button variant="outline" className="w-full" onClick={onRequestScanLink}>
+            <Barcode className="h-4 w-4" /> Scan Barcode & Link to This Product
+          </Button>
+        ) : null}
 
         <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
