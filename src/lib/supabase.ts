@@ -155,3 +155,85 @@ export type VerificationItem = {
   is_checked: boolean;
   created_at: string;
 };
+
+// ---------------------------------------------------------------------
+// Master barcode list — a global barcode -> product-name mapping shared
+// across every summary. Once a barcode is linked to a product name here,
+// any future "without barcode" summary can auto-match against it.
+// ---------------------------------------------------------------------
+
+export type BarcodeMaster = {
+  id: string;
+  barcode: string;
+  product_name: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function normalizeWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+// Word-overlap similarity (0 to 1). Handles the "same product, different
+// weight suffix" case well — e.g. "Kissan Mixed Fruit Jam 500g" vs
+// "Kissan Mixed Fruit Jam 200g" share every word except the weight, so
+// they still score high even though they aren't an exact match.
+export function nameSimilarity(a: string, b: string): number {
+  const wordsA = new Set(normalizeWords(a));
+  const wordsB = new Set(normalizeWords(b));
+  if (wordsA.size === 0 || wordsB.size === 0) return 0;
+  let intersection = 0;
+  for (const w of wordsA) if (wordsB.has(w)) intersection++;
+  const union = new Set([...wordsA, ...wordsB]).size;
+  return union === 0 ? 0 : intersection / union;
+}
+
+// Finds the best-matching product in a list by fuzzy name similarity.
+// Returns null if nothing clears the threshold (default ~70%).
+export function findBestNameMatch(
+  products: Product[],
+  targetName: string,
+  threshold = 0.7,
+): Product | null {
+  let best: Product | null = null;
+  let bestScore = 0;
+  for (const p of products) {
+    if (!p.product_name) continue;
+    const score = nameSimilarity(p.product_name, targetName);
+    if (score > bestScore) {
+      bestScore = score;
+      best = p;
+    }
+  }
+  return bestScore >= threshold ? best : null;
+}
+
+export async function lookupBarcodeMaster(barcode: string): Promise<BarcodeMaster | null> {
+  const code = barcode.trim();
+  if (!code) return null;
+  const { data, error } = await supabase
+    .from("barcode_master")
+    .select("*")
+    .eq("barcode", code)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as BarcodeMaster) ?? null;
+}
+
+// Links (or re-links) a barcode to a product name permanently. Uses
+// upsert so re-scanning the same barcode for a different product just
+// overwrites the old link.
+export async function linkBarcodeToProduct(barcode: string, productName: string): Promise<void> {
+  const code = barcode.trim();
+  const name = productName.trim();
+  if (!code || !name) return;
+  const { error } = await supabase.from("barcode_master").upsert(
+    { barcode: code, product_name: name, updated_at: new Date().toISOString() },
+    { onConflict: "barcode" },
+  );
+  if (error) throw error;
+}
