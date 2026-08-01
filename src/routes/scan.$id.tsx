@@ -114,6 +114,7 @@ function ScanScreen() {
   // Conflict warning — when scan-to-link (from ProductCard) hits a
   // barcode already linked to a different product name.
   const [linkConflict, setLinkConflict] = useState(null); // { barcode, existingName, productId, productName }
+  const [linkTargetProduct, setLinkTargetProduct] = useState(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["scan", id],
@@ -207,25 +208,31 @@ function ScanScreen() {
   // ---- Scan-to-link (from inside the edit dialog, for one specific product) ----
   async function handleProductLinkScan(code) {
     setCameraMode(null);
-    if (!active) return;
+    const target = linkTargetProduct;
+    if (!target) return;
     try {
       const existing = await lookupBarcodeMaster(code);
       if (existing) {
-        const same = nameSimilarity(existing.product_name, active.product_name ?? "") >= 0.7;
+        const same = nameSimilarity(existing.product_name, target.product_name ?? "") >= 0.7;
         if (!same) {
           setLinkConflict({
             barcode: code,
             existingName: existing.product_name,
-            productId: active.id,
-            productName: active.product_name ?? "",
+            productId: target.id,
+            productName: target.product_name ?? "",
           });
+          setActive(target);
+          setLinkTargetProduct(null);
           return;
         }
       }
-      await linkBarcodeToProduct(code, active.product_name ?? "");
-      toast.success(`Barcode linked to "${active.product_name}"`);
+      await linkBarcodeToProduct(code, target.product_name ?? "");
+      toast.success(`Barcode linked to "${target.product_name}"`);
     } catch (e) {
       toast.error(`Could not link barcode: ${e.message ?? e}`);
+    } finally {
+      setActive(target);
+      setLinkTargetProduct(null);
     }
   }
 
@@ -571,7 +578,14 @@ function ScanScreen() {
       ) : null}
 
       {cameraMode === "productLink" ? (
-        <CameraScanner onClose={() => setCameraMode(null)} onDetected={handleProductLinkScan} />
+        <CameraScanner
+          onClose={() => {
+            setCameraMode(null);
+            setActive(linkTargetProduct);
+            setLinkTargetProduct(null);
+          }}
+          onDetected={handleProductLinkScan}
+        />
       ) : null}
 
       {photoMatch ? (
@@ -597,7 +611,11 @@ function ScanScreen() {
           product={active}
           onCancel={() => setActive(null)}
           onSaved={onSaved}
-          onRequestScanLink={() => setCameraMode("productLink")}
+          onRequestScanLink={() => {
+            setLinkTargetProduct(active);
+            setActive(null);
+            setCameraMode("productLink");
+          }}
         />
       ) : null}
 
