@@ -39,11 +39,6 @@ export function FloatingCalculator() {
   ];
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        return (
     <div data-floating-calculator="true">
       <button
         type="button"
