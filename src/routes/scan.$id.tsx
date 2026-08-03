@@ -1096,71 +1096,73 @@ function ProductCard({ product, onCancel, onSaved, onRequestScanLink }) {
 
   return (
     <Dialog open onOpenChange={(o) => !o && !saving && onCancel()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-left leading-snug">{product.product_name}</DialogTitle>
-        </DialogHeader>
-        {product.barcode ? (
-          <p className="-mt-2 font-mono text-xs text-muted-foreground">{product.barcode}</p>
-        ) : null}
+      <DialogContent className="top-4 max-h-[92dvh] max-w-md translate-y-0 flex-col gap-3 overflow-hidden p-0 sm:top-[50%] sm:max-h-[85vh] sm:translate-y-[-50%]">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 pb-2">
+          <DialogHeader>
+            <DialogTitle className="text-left leading-snug">{product.product_name}</DialogTitle>
+          </DialogHeader>
+          {product.barcode ? (
+            <p className="-mt-2 font-mono text-xs text-muted-foreground">{product.barcode}</p>
+          ) : null}
 
-        <ReadRow
-          label="Required"
-          mrp={product.required_mrp}
-          box={product.required_box}
-          pcs={product.required_pcs}
-        />
+          <ReadRow
+            label="Required"
+            mrp={product.required_mrp}
+            box={product.required_box}
+            pcs={product.required_pcs}
+          />
 
-        {!product.barcode ? (
-          <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" onClick={() => onRequestScanLink("camera")}>
-              <Camera className="h-4 w-4" /> Scan with Camera
-            </Button>
-            <Button variant="outline" onClick={() => onRequestScanLink("machine")}>
-              <Barcode className="h-4 w-4" /> Scan with Machine
-            </Button>
-          </div>
-        ) : null}
-
-        <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
-            Completed
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            <div className="space-y-1">
-              <Label htmlFor="scan-mrp" className="text-xs">MRP</Label>
-              <Input
-                id="scan-mrp"
-                inputMode="decimal"
-                value={mrp}
-                onChange={(e) => setMrp(e.target.value)}
-              />
+          {!product.barcode ? (
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" onClick={() => onRequestScanLink("camera")}>
+                <Camera className="h-4 w-4" /> Scan with Camera
+              </Button>
+              <Button variant="outline" onClick={() => onRequestScanLink("machine")}>
+                <Barcode className="h-4 w-4" /> Scan with Machine
+              </Button>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="scan-box" className="text-xs">Box</Label>
-              <Input
-                id="scan-box"
-                inputMode="numeric"
-                autoFocus
-                placeholder="0"
-                value={box}
-                onChange={(e) => setBox(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="scan-pcs" className="text-xs">Pcs</Label>
-              <Input
-                id="scan-pcs"
-                inputMode="numeric"
-                placeholder="0"
-                value={pcs}
-                onChange={(e) => setPcs(e.target.value)}
-              />
+          ) : null}
+
+          <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
+              Completed
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <Label htmlFor="scan-mrp" className="text-xs">MRP</Label>
+                <Input
+                  id="scan-mrp"
+                  inputMode="decimal"
+                  value={mrp}
+                  onChange={(e) => setMrp(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="scan-box" className="text-xs">Box</Label>
+                <Input
+                  id="scan-box"
+                  inputMode="numeric"
+                  autoFocus
+                  placeholder="0"
+                  value={box}
+                  onChange={(e) => setBox(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="scan-pcs" className="text-xs">Pcs</Label>
+                <Input
+                  id="scan-pcs"
+                  inputMode="numeric"
+                  placeholder="0"
+                  value={pcs}
+                  onChange={(e) => setPcs(e.target.value)}
+                />
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 border-t border-border p-4 pt-3">
           <Button variant="outline" onClick={onCancel} disabled={saving}>
             Cancel
           </Button>
