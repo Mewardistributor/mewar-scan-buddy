@@ -43,14 +43,14 @@ export function FloatingCalculator() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="fixed bottom-24 right-4 z-40 grid h-12 w-12 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
+        className="fixed bottom-24 right-4 z-[60] grid h-12 w-12 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
         aria-label="Open calculator"
       >
         {open ? <X className="h-5 w-5" /> : <Calculator className="h-5 w-5" />}
       </button>
 
       {open ? (
-        <div className="fixed bottom-40 right-4 z-40 w-64 rounded-2xl border border-border bg-card p-3 shadow-xl">
+        <div className="fixed bottom-40 right-4 z-[60] w-64 rounded-2xl border border-border bg-card p-3 shadow-xl">
           <div className="mb-2 rounded-lg bg-secondary/60 p-3 text-right">
             <p className="min-h-[1.25rem] truncate text-xs text-muted-foreground">{expr || "0"}</p>
             <p className="min-h-[1.75rem] truncate text-xl font-semibold">
