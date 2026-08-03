@@ -116,6 +116,10 @@ function ScanScreen() {
   const [linkConflict, setLinkConflict] = useState(null); // { barcode, existingName, productId, productName }
   const [linkTargetProduct, setLinkTargetProduct] = useState(null);
 
+  // null | "master" | "productLink" — when set, we're waiting for a physical
+  // USB/Bluetooth scanner's keystrokes instead of the camera.
+  const [machineListenMode, setMachineListenMode] = useState(null);
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["scan", id],
     queryFn: async () => {
@@ -155,7 +159,8 @@ function ScanScreen() {
     showAdd ||
     !!deleteTarget ||
     !!assignFlow ||
-    !!linkConflict;
+    !!linkConflict ||
+    !!machineListenMode;
 
   const handleBarcode = useCallback(
     (raw) => {
@@ -249,7 +254,21 @@ function ScanScreen() {
   }
 
   useEffect(() => {
-    if (modalOpen || photoOnly) return;
+    const blockingModal =
+      photoMatch ||
+      photoGallery ||
+      !!active ||
+      !!readOnly ||
+      confirmDone ||
+      showAdd ||
+      !!deleteTarget ||
+      !!assignFlow ||
+      !!linkConflict ||
+      cameraMode !== null;
+    // While a real dialog is open we ignore machine input — UNLESS we're
+    // specifically waiting for a machine scan (machineListenMode set).
+    if (blockingModal && !machineListenMode) return;
+
     function onKeyDown(e) {
       const target = e.target;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
@@ -259,14 +278,38 @@ function ScanScreen() {
       if (e.key === "Enter") {
         const code = bufferRef.current;
         bufferRef.current = "";
-        if (code.length >= 3) handleBarcode(code);
+        if (code.length >= 3) {
+          if (machineListenMode === "productLink") {
+            setMachineListenMode(null);
+            handleProductLinkScan(code);
+          } else if (machineListenMode === "master" || photoOnly) {
+            setMachineListenMode(null);
+            handleMasterScan(code);
+          } else {
+            handleBarcode(code);
+          }
+        }
         return;
       }
       if (e.key.length === 1) bufferRef.current += e.key;
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [modalOpen, photoOnly, handleBarcode]);
+  }, [
+    photoMatch,
+    photoGallery,
+    active,
+    readOnly,
+    confirmDone,
+    showAdd,
+    deleteTarget,
+    assignFlow,
+    linkConflict,
+    cameraMode,
+    machineListenMode,
+    photoOnly,
+    handleBarcode,
+  ]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -468,16 +511,22 @@ function ScanScreen() {
       </section>
 
       {photoOnly ? (
-        <div className="grid gap-2 sm:grid-cols-3">
-          <Button variant="hero" size="lg" onClick={() => setPhotoMatch(true)}>
-            <ImagePlus className="h-5 w-5" /> Match by Photo
-          </Button>
-          <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
-            <ImageIcon className="h-5 w-5" /> Upload from Gallery
-          </Button>
-          <Button variant="outline" size="lg" onClick={() => setCameraMode("master")}>
-            <Barcode className="h-5 w-5" /> Scan Barcode
-          </Button>
+        <div className="space-y-2">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Button variant="hero" size="lg" onClick={() => setPhotoMatch(true)}>
+              <ImagePlus className="h-5 w-5" /> Match by Photo
+            </Button>
+            <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
+              <ImageIcon className="h-5 w-5" /> Upload from Gallery
+            </Button>
+            <Button variant="outline" size="lg" onClick={() => setCameraMode("master")}>
+              <Barcode className="h-5 w-5" /> Scan Barcode (Camera)
+            </Button>
+          </div>
+          <p className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+            <Keyboard className="h-4 w-4 text-primary" />
+            USB / Bluetooth scanner also works here — just scan any item
+          </p>
         </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
@@ -588,6 +637,42 @@ function ScanScreen() {
         />
       ) : null}
 
+      {machineListenMode === "productLink" ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm space-y-4 rounded-2xl bg-card p-6 text-center shadow-xl">
+            <Barcode className="mx-auto h-10 w-10 animate-pulse text-primary" />
+            <p className="font-semibold">Ready to scan</p>
+            <p className="text-sm text-muted-foreground">
+              Point your barcode scanner at "{linkTargetProduct?.product_name}" and scan now.
+            </p>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                setMachineListenMode(null);
+                setActive(linkTargetProduct);
+                setLinkTargetProduct(null);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {machineListenMode === "master" ? (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm space-y-4 rounded-2xl bg-card p-6 text-center shadow-xl">
+            <Barcode className="mx-auto h-10 w-10 animate-pulse text-primary" />
+            <p className="font-semibold">Ready to scan</p>
+            <p className="text-sm text-muted-foreground">Scan any item's barcode now.</p>
+            <Button variant="outline" className="w-full" onClick={() => setMachineListenMode(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {photoMatch ? (
         <PhotoMatchScanner
           mode="camera"
@@ -611,10 +696,11 @@ function ScanScreen() {
           product={active}
           onCancel={() => setActive(null)}
           onSaved={onSaved}
-          onRequestScanLink={() => {
+          onRequestScanLink={(mode) => {
             setLinkTargetProduct(active);
             setActive(null);
-            setCameraMode("productLink");
+            if (mode === "machine") setMachineListenMode("productLink");
+            else setCameraMode("productLink");
           }}
         />
       ) : null}
@@ -998,9 +1084,14 @@ function ProductCard({ product, onCancel, onSaved, onRequestScanLink }) {
         />
 
         {!product.barcode ? (
-          <Button variant="outline" className="w-full" onClick={onRequestScanLink}>
-            <Barcode className="h-4 w-4" /> Scan Barcode & Link to This Product
-          </Button>
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="outline" onClick={() => onRequestScanLink("camera")}>
+              <Camera className="h-4 w-4" /> Scan with Camera
+            </Button>
+            <Button variant="outline" onClick={() => onRequestScanLink("machine")}>
+              <Barcode className="h-4 w-4" /> Scan with Machine
+            </Button>
+          </div>
         ) : null}
 
         <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
