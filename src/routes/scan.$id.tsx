@@ -961,7 +961,31 @@ function AssignFlowDialog({ barcode, suggestedName, products, onClose, onAssigne
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return products.slice(0, 30);
-    return products.filter((p) => (p.product_name ?? "").toLowerCase().includes(q)).slice(0, 30);
+
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const prefix = tokens[0];
+    const restTokens = tokens.slice(1);
+    const numericTokens = restTokens.filter((t) => /^\d+(\.\d+)?$/.test(t));
+    const textTokens = restTokens.filter((t) => !/^\d+(\.\d+)?$/.test(t));
+
+    const base = products.filter((p) => {
+      const name = (p.product_name ?? "").toLowerCase();
+      if (!name.startsWith(prefix)) return false;
+      for (const t of textTokens) {
+        if (!name.includes(t)) return false;
+      }
+      return true;
+    });
+
+    if (numericTokens.length === 0) return base.slice(0, 30);
+
+    const target = Number(numericTokens[numericTokens.length - 1]);
+    function mrpDistance(p) {
+      if (p.required_mrp == null) return Infinity;
+      return Math.abs(p.required_mrp - target);
+    }
+
+    return [...base].sort((a, b) => mrpDistance(a) - mrpDistance(b)).slice(0, 30);
   }, [products, query]);
 
   async function assignTo(p) {
@@ -979,11 +1003,11 @@ function AssignFlowDialog({ barcode, suggestedName, products, onClose, onAssigne
 
   return (
     <Dialog open onOpenChange={(o) => !o && !assigning && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Item not in data</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
+      <DialogContent className="top-4 max-h-[92dvh] max-w-md translate-y-0 flex-col gap-3 overflow-hidden p-0 sm:top-[50%] sm:max-h-[85vh] sm:translate-y-[-50%]">
+        <div className="space-y-3 border-b border-border p-4 pb-3">
+          <DialogHeader className="space-y-1">
+            <DialogTitle>Item not in data</DialogTitle>
+          </DialogHeader>
           <p className="rounded-lg bg-secondary/70 px-3 py-2 font-mono text-xs text-muted-foreground">
             Scanned: {barcode}
           </p>
@@ -1003,34 +1027,38 @@ function AssignFlowDialog({ barcode, suggestedName, products, onClose, onAssigne
             <Input
               autoFocus
               className="h-11 pl-9"
-              placeholder="Search product name..."
+              placeholder="Search Product (Example: cl, cl 27)"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          <div className="max-h-72 space-y-2 overflow-y-auto">
-            {results.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">No products match.</p>
-            ) : (
-              results.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  disabled={assigning}
-                  onClick={() => assignTo(p)}
-                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-secondary/50 active:scale-[0.99] disabled:opacity-50"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">{p.product_name}</span>
-                    <span className="block text-xs text-muted-foreground">
-                      Req {p.required_box ?? 0} Box / {p.required_pcs ?? 0} Pcs
-                    </span>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4 pt-3">
+          {results.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">No products match.</p>
+          ) : (
+            results.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                disabled={assigning}
+                onClick={() => assignTo(p)}
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-secondary/50 active:scale-[0.99] disabled:opacity-50"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">{p.product_name}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    MRP ₹{p.required_mrp ?? "-"} • {p.required_box ?? 0} Box / {p.required_pcs ?? 0} Pcs
                   </span>
-                  <Link2 className="h-5 w-5 shrink-0 text-primary" />
-                </button>
-              ))
-            )}
-          </div>
+                </span>
+                <Link2 className="h-5 w-5 shrink-0 text-primary" />
+              </button>
+            ))
+          )}
+        </div>
+
+        <div className="border-t border-border p-4 pt-3">
           <Button variant="outline" className="w-full" onClick={onClose} disabled={assigning}>
             Cancel
           </Button>
