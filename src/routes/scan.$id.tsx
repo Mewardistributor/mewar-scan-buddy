@@ -115,10 +115,8 @@ function ScanScreen() {
   // barcode already linked to a different product name.
   const [linkConflict, setLinkConflict] = useState(null); // { barcode, existingName, productId, productName }
   const [linkTargetProduct, setLinkTargetProduct] = useState(null);
-
-  // null | "master" | "productLink" — when set, we're waiting for a physical
-  // USB/Bluetooth scanner's keystrokes instead of the camera.
-  const [machineListenMode, setMachineListenMode] = useState(null);
+  const [barcodeMultiMatch, setBarcodeMultiMatch] = useState(null); // { code, matches }
+  const routeScanRef = useRef(() => {});
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["scan", id],
@@ -160,17 +158,24 @@ function ScanScreen() {
     !!deleteTarget ||
     !!assignFlow ||
     !!linkConflict ||
-    !!machineListenMode;
+    !!barcodeMultiMatch;
 
   const handleBarcode = useCallback(
     (raw) => {
       const code = raw.trim();
       if (!code) return;
-      const found = products.find((p) => (p.barcode ?? "").trim() === code);
-      if (!found) {
+      const matches = products.filter(
+        (p) => (p.barcode ?? "").trim() === code && p.status !== "removed",
+      );
+      if (matches.length === 0) {
         toast.error(`Barcode not in this summary: ${code}`);
         return;
       }
+      if (matches.length > 1) {
+        setBarcodeMultiMatch({ code, matches });
+        return;
+      }
+      const found = matches[0];
       if (found.status === "match") {
         setReadOnly(found);
         return;
@@ -190,9 +195,8 @@ function ScanScreen() {
     }
   }, []);
 
-  // ---- Master barcode scan (quick action, photoOnly toolbar) ----
-  async function handleMasterScan(code) {
-    setCameraMode(null);
+  // ---- Master barcode scan (used by both camera AND physical scanner) ----
+  async function performMasterScan(code) {
     try {
       const existing = await lookupBarcodeMaster(code);
       if (existing) {
@@ -203,17 +207,19 @@ function ScanScreen() {
           return;
         }
       }
-      // Not linked yet, or linked but nothing in THIS summary fuzzy-matches it.
       setAssignFlow({ barcode: code, suggestedName: existing?.product_name ?? "" });
     } catch (e) {
       toast.error(`Lookup failed: ${e.message ?? e}`);
     }
   }
 
-  // ---- Scan-to-link (from inside the edit dialog, for one specific product) ----
-  async function handleProductLinkScan(code) {
+  async function handleMasterScan(code) {
     setCameraMode(null);
-    const target = linkTargetProduct;
+    await performMasterScan(code);
+  }
+
+  // ---- Scan-to-link (used by both camera AND physical scanner) ----
+  async function performProductLink(code, target) {
     if (!target) return;
     try {
       const existing = await lookupBarcodeMaster(code);
@@ -226,8 +232,6 @@ function ScanScreen() {
             productId: target.id,
             productName: target.product_name ?? "",
           });
-          setActive(target);
-          setLinkTargetProduct(null);
           return;
         }
       }
@@ -235,11 +239,38 @@ function ScanScreen() {
       toast.success(`Barcode linked to "${target.product_name}"`);
     } catch (e) {
       toast.error(`Could not link barcode: ${e.message ?? e}`);
-    } finally {
-      setActive(target);
-      setLinkTargetProduct(null);
     }
   }
+
+  async function handleProductLinkScan(code) {
+    setCameraMode(null);
+    const target = linkTargetProduct;
+    await performProductLink(code, target);
+    setActive(target);
+    setLinkTargetProduct(null);
+  }
+
+  // Physical (USB/Bluetooth) scanner routing — decides what a raw scanned
+  // code should do based on what's currently open, without ever needing
+  // the camera UI at all.
+  useEffect(() => {
+    routeScanRef.current = function (code) {
+      const trimmed = code.trim();
+      if (!trimmed) return;
+      if (linkConflict || assignFlow || confirmDone || showAdd || deleteTarget || photoMatch || photoGallery || readOnly) {
+        return;
+      }
+      if (active) {
+        if (!active.barcode) performProductLink(trimmed, active);
+        return;
+      }
+      if (photoOnly) {
+        performMasterScan(trimmed);
+        return;
+      }
+      handleBarcode(trimmed);
+    };
+  });
 
   async function confirmChangeLink() {
     if (!linkConflict) return;
@@ -253,63 +284,48 @@ function ScanScreen() {
     }
   }
 
-  useEffect(() => {
-    const blockingModal =
-      photoMatch ||
-      photoGallery ||
-      !!active ||
-      !!readOnly ||
-      confirmDone ||
-      showAdd ||
-      !!deleteTarget ||
-      !!assignFlow ||
-      !!linkConflict ||
-      cameraMode !== null;
-    // While a real dialog is open we ignore machine input — UNLESS we're
-    // specifically waiting for a machine scan (machineListenMode set).
-    if (blockingModal && !machineListenMode) return;
+  // "Remove Previous" — clears the barcode from every OTHER item sharing
+  // it, so this barcode becomes uniquely reserved for the chosen item.
+  async function keepBarcodeForOnly(item, allMatches) {
+    const others = allMatches.filter((p) => p.id !== item.id);
+    try {
+      const { error } = await supabase
+        .from("products")
+        .update({ barcode: null })
+        .in("id", others.map((p) => p.id));
+      if (error) throw error;
+      setProducts((prev) =>
+        prev.map((p) => (others.some((o) => o.id === p.id) ? { ...p, barcode: null } : p)),
+      );
+      toast.success(`Barcode kept only for "${item.product_name}"`);
+    } catch (e) {
+      toast.error(`Could not update: ${e.message ?? e}`);
+    } finally {
+      setBarcodeMultiMatch(null);
+      openProduct(item);
+    }
+  }
 
+  useEffect(() => {
     function onKeyDown(e) {
       const target = e.target;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      // Camera modes handle their own detection — don't double-fire.
+      if (cameraMode !== null) return;
       const now = Date.now();
       if (now - lastKeyRef.current > 120) bufferRef.current = "";
       lastKeyRef.current = now;
       if (e.key === "Enter") {
         const code = bufferRef.current;
         bufferRef.current = "";
-        if (code.length >= 3) {
-          if (machineListenMode === "productLink") {
-            setMachineListenMode(null);
-            handleProductLinkScan(code);
-          } else if (machineListenMode === "master" || photoOnly) {
-            setMachineListenMode(null);
-            handleMasterScan(code);
-          } else {
-            handleBarcode(code);
-          }
-        }
+        if (code.length >= 3) routeScanRef.current(code);
         return;
       }
       if (e.key.length === 1) bufferRef.current += e.key;
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    photoMatch,
-    photoGallery,
-    active,
-    readOnly,
-    confirmDone,
-    showAdd,
-    deleteTarget,
-    assignFlow,
-    linkConflict,
-    cameraMode,
-    machineListenMode,
-    photoOnly,
-    handleBarcode,
-  ]);
+  }, [cameraMode]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -511,22 +527,16 @@ function ScanScreen() {
       </section>
 
       {photoOnly ? (
-        <div className="space-y-2">
-          <div className="grid gap-2 sm:grid-cols-3">
-            <Button variant="hero" size="lg" onClick={() => setPhotoMatch(true)}>
-              <ImagePlus className="h-5 w-5" /> Match by Photo
-            </Button>
-            <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
-              <ImageIcon className="h-5 w-5" /> Upload from Gallery
-            </Button>
-            <Button variant="outline" size="lg" onClick={() => setCameraMode("master")}>
-              <Barcode className="h-5 w-5" /> Scan Barcode (Camera)
-            </Button>
-          </div>
-          <p className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-            <Keyboard className="h-4 w-4 text-primary" />
-            USB / Bluetooth scanner also works here — just scan any item
-          </p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <Button variant="hero" size="lg" onClick={() => setPhotoMatch(true)}>
+            <ImagePlus className="h-5 w-5" /> Match by Photo
+          </Button>
+          <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
+            <ImageIcon className="h-5 w-5" /> Upload from Gallery
+          </Button>
+          <Button variant="outline" size="lg" onClick={() => setCameraMode("master")}>
+            <Barcode className="h-5 w-5" /> Scan Barcode
+          </Button>
         </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
@@ -637,42 +647,6 @@ function ScanScreen() {
         />
       ) : null}
 
-      {machineListenMode === "productLink" ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-sm space-y-4 rounded-2xl bg-card p-6 text-center shadow-xl">
-            <Barcode className="mx-auto h-10 w-10 animate-pulse text-primary" />
-            <p className="font-semibold">Ready to scan</p>
-            <p className="text-sm text-muted-foreground">
-              Point your barcode scanner at "{linkTargetProduct?.product_name}" and scan now.
-            </p>
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => {
-                setMachineListenMode(null);
-                setActive(linkTargetProduct);
-                setLinkTargetProduct(null);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {machineListenMode === "master" ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-sm space-y-4 rounded-2xl bg-card p-6 text-center shadow-xl">
-            <Barcode className="mx-auto h-10 w-10 animate-pulse text-primary" />
-            <p className="font-semibold">Ready to scan</p>
-            <p className="text-sm text-muted-foreground">Scan any item's barcode now.</p>
-            <Button variant="outline" className="w-full" onClick={() => setMachineListenMode(null)}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
       {photoMatch ? (
         <PhotoMatchScanner
           mode="camera"
@@ -696,11 +670,10 @@ function ScanScreen() {
           product={active}
           onCancel={() => setActive(null)}
           onSaved={onSaved}
-          onRequestScanLink={(mode) => {
+          onRequestScanLink={() => {
             setLinkTargetProduct(active);
             setActive(null);
-            if (mode === "machine") setMachineListenMode("productLink");
-            else setCameraMode("productLink");
+            setCameraMode("productLink");
           }}
         />
       ) : null}
@@ -772,6 +745,19 @@ function ScanScreen() {
             setAssignFlow(null);
             openProduct(p);
           }}
+        />
+      ) : null}
+
+      {barcodeMultiMatch ? (
+        <BarcodeMultiMatchDialog
+          code={barcodeMultiMatch.code}
+          matches={barcodeMultiMatch.matches}
+          onClose={() => setBarcodeMultiMatch(null)}
+          onOpenItem={(p) => {
+            setBarcodeMultiMatch(null);
+            openProduct(p);
+          }}
+          onKeepOnly={(p) => keepBarcodeForOnly(p, barcodeMultiMatch.matches)}
         />
       ) : null}
 
@@ -961,31 +947,7 @@ function AssignFlowDialog({ barcode, suggestedName, products, onClose, onAssigne
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return products.slice(0, 30);
-
-    const tokens = q.split(/\s+/).filter(Boolean);
-    const prefix = tokens[0];
-    const restTokens = tokens.slice(1);
-    const numericTokens = restTokens.filter((t) => /^\d+(\.\d+)?$/.test(t));
-    const textTokens = restTokens.filter((t) => !/^\d+(\.\d+)?$/.test(t));
-
-    const base = products.filter((p) => {
-      const name = (p.product_name ?? "").toLowerCase();
-      if (!name.startsWith(prefix)) return false;
-      for (const t of textTokens) {
-        if (!name.includes(t)) return false;
-      }
-      return true;
-    });
-
-    if (numericTokens.length === 0) return base.slice(0, 30);
-
-    const target = Number(numericTokens[numericTokens.length - 1]);
-    function mrpDistance(p) {
-      if (p.required_mrp == null) return Infinity;
-      return Math.abs(p.required_mrp - target);
-    }
-
-    return [...base].sort((a, b) => mrpDistance(a) - mrpDistance(b)).slice(0, 30);
+    return products.filter((p) => (p.product_name ?? "").toLowerCase().includes(q)).slice(0, 30);
   }, [products, query]);
 
   async function assignTo(p) {
@@ -1003,11 +965,11 @@ function AssignFlowDialog({ barcode, suggestedName, products, onClose, onAssigne
 
   return (
     <Dialog open onOpenChange={(o) => !o && !assigning && onClose()}>
-      <DialogContent className="top-4 max-h-[92dvh] max-w-md translate-y-0 flex-col gap-3 overflow-hidden p-0 sm:top-[50%] sm:max-h-[85vh] sm:translate-y-[-50%]">
-        <div className="space-y-3 border-b border-border p-4 pb-3">
-          <DialogHeader className="space-y-1">
-            <DialogTitle>Item not in data</DialogTitle>
-          </DialogHeader>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Item not in data</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
           <p className="rounded-lg bg-secondary/70 px-3 py-2 font-mono text-xs text-muted-foreground">
             Scanned: {barcode}
           </p>
@@ -1027,39 +989,87 @@ function AssignFlowDialog({ barcode, suggestedName, products, onClose, onAssigne
             <Input
               autoFocus
               className="h-11 pl-9"
-              placeholder="Search Product (Example: cl, cl 27)"
+              placeholder="Search product name..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-        </div>
-
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4 pt-3">
-          {results.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">No products match.</p>
-          ) : (
-            results.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                disabled={assigning}
-                onClick={() => assignTo(p)}
-                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-secondary/50 active:scale-[0.99] disabled:opacity-50"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{p.product_name}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    MRP ₹{p.required_mrp ?? "-"} • {p.required_box ?? 0} Box / {p.required_pcs ?? 0} Pcs
+          <div className="max-h-72 space-y-2 overflow-y-auto">
+            {results.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">No products match.</p>
+            ) : (
+              results.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  disabled={assigning}
+                  onClick={() => assignTo(p)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-secondary/50 active:scale-[0.99] disabled:opacity-50"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{p.product_name}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Req {p.required_box ?? 0} Box / {p.required_pcs ?? 0} Pcs
+                    </span>
                   </span>
-                </span>
-                <Link2 className="h-5 w-5 shrink-0 text-primary" />
-              </button>
-            ))
-          )}
-        </div>
-
-        <div className="border-t border-border p-4 pt-3">
+                  <Link2 className="h-5 w-5 shrink-0 text-primary" />
+                </button>
+              ))
+            )}
+          </div>
           <Button variant="outline" className="w-full" onClick={onClose} disabled={assigning}>
+            Cancel
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Shown when a scanned barcode matches MORE THAN ONE item in this summary
+// (duplicate/shared barcode across different priced variants).
+function BarcodeMultiMatchDialog({ code, matches, onClose, onOpenItem, onKeepOnly }) {
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Multiple items use this barcode</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="rounded-lg bg-secondary/70 px-3 py-2 font-mono text-xs text-muted-foreground">
+            Scanned: {code}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {matches.length} items share this barcode. Tap one to open it (barcode stays shared — "Add
+            Multiple"), or use "Remove Previous" to keep the barcode only for that item going forward.
+          </p>
+          <div className="space-y-2">
+            {matches.map((p) => (
+              <div key={p.id} className="rounded-xl border border-border bg-card p-3">
+                <button
+                  type="button"
+                  onClick={() => onOpenItem(p)}
+                  className="flex w-full items-center justify-between gap-3 text-left"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{p.product_name}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      MRP ₹{p.required_mrp ?? "-"} • {p.required_box ?? 0} Box / {p.required_pcs ?? 0} Pcs
+                    </span>
+                  </span>
+                  <StatusBadge status={p.status} mrpMismatch={false} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onKeepOnly(p)}
+                  className="mt-2 text-xs font-medium text-primary hover:underline"
+                >
+                  Remove Previous — keep barcode only for this item
+                </button>
+              </div>
+            ))}
+          </div>
+          <Button variant="outline" className="w-full" onClick={onClose}>
             Cancel
           </Button>
         </div>
@@ -1096,73 +1106,66 @@ function ProductCard({ product, onCancel, onSaved, onRequestScanLink }) {
 
   return (
     <Dialog open onOpenChange={(o) => !o && !saving && onCancel()}>
-      <DialogContent className="top-4 max-h-[92dvh] max-w-md translate-y-0 flex-col gap-3 overflow-hidden p-0 sm:top-[50%] sm:max-h-[85vh] sm:translate-y-[-50%]">
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 pb-2">
-          <DialogHeader>
-            <DialogTitle className="text-left leading-snug">{product.product_name}</DialogTitle>
-          </DialogHeader>
-          {product.barcode ? (
-            <p className="-mt-2 font-mono text-xs text-muted-foreground">{product.barcode}</p>
-          ) : null}
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-left leading-snug">{product.product_name}</DialogTitle>
+        </DialogHeader>
+        {product.barcode ? (
+          <p className="-mt-2 font-mono text-xs text-muted-foreground">{product.barcode}</p>
+        ) : null}
 
-          <ReadRow
-            label="Required"
-            mrp={product.required_mrp}
-            box={product.required_box}
-            pcs={product.required_pcs}
-          />
+        <ReadRow
+          label="Required"
+          mrp={product.required_mrp}
+          box={product.required_box}
+          pcs={product.required_pcs}
+        />
 
-          {!product.barcode ? (
-            <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" onClick={() => onRequestScanLink("camera")}>
-                <Camera className="h-4 w-4" /> Scan with Camera
-              </Button>
-              <Button variant="outline" onClick={() => onRequestScanLink("machine")}>
-                <Barcode className="h-4 w-4" /> Scan with Machine
-              </Button>
+        {!product.barcode ? (
+          <Button variant="outline" className="w-full" onClick={onRequestScanLink}>
+            <Barcode className="h-4 w-4" /> Scan Barcode & Link to This Product
+          </Button>
+        ) : null}
+
+        <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
+            Completed
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="scan-mrp" className="text-xs">MRP</Label>
+              <Input
+                id="scan-mrp"
+                inputMode="decimal"
+                value={mrp}
+                onChange={(e) => setMrp(e.target.value)}
+              />
             </div>
-          ) : null}
-
-          <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
-              Completed
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="space-y-1">
-                <Label htmlFor="scan-mrp" className="text-xs">MRP</Label>
-                <Input
-                  id="scan-mrp"
-                  inputMode="decimal"
-                  value={mrp}
-                  onChange={(e) => setMrp(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="scan-box" className="text-xs">Box</Label>
-                <Input
-                  id="scan-box"
-                  inputMode="numeric"
-                  autoFocus
-                  placeholder="0"
-                  value={box}
-                  onChange={(e) => setBox(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="scan-pcs" className="text-xs">Pcs</Label>
-                <Input
-                  id="scan-pcs"
-                  inputMode="numeric"
-                  placeholder="0"
-                  value={pcs}
-                  onChange={(e) => setPcs(e.target.value)}
-                />
-              </div>
+            <div className="space-y-1">
+              <Label htmlFor="scan-box" className="text-xs">Box</Label>
+              <Input
+                id="scan-box"
+                inputMode="numeric"
+                autoFocus
+                placeholder="0"
+                value={box}
+                onChange={(e) => setBox(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="scan-pcs" className="text-xs">Pcs</Label>
+              <Input
+                id="scan-pcs"
+                inputMode="numeric"
+                placeholder="0"
+                value={pcs}
+                onChange={(e) => setPcs(e.target.value)}
+              />
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 border-t border-border p-4 pt-3">
+        <div className="grid grid-cols-2 gap-2">
           <Button variant="outline" onClick={onCancel} disabled={saving}>
             Cancel
           </Button>
