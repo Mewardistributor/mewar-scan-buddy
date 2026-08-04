@@ -254,20 +254,25 @@ function ScanScreen() {
   }
 
   useEffect(() => {
-    const blockingModal =
-      photoMatch ||
-      photoGallery ||
-      !!active ||
-      !!readOnly ||
-      confirmDone ||
-      showAdd ||
-      !!deleteTarget ||
-      !!assignFlow ||
-      !!linkConflict ||
-      cameraMode !== null;
-    // While a real dialog is open we ignore machine input — UNLESS we're
-    // specifically waiting for a machine scan (machineListenMode set).
-    if (blockingModal && !machineListenMode) return;
+    // SAFETY: for a normal barcode summary, only block when a real dialog
+    // is open. This is the simple, proven condition — normal barcode
+    // scanning must never be at risk.
+    if (!photoOnly) {
+      const blockingModal =
+        photoMatch ||
+        photoGallery ||
+        !!active ||
+        !!readOnly ||
+        confirmDone ||
+        showAdd ||
+        !!deleteTarget ||
+        !!assignFlow ||
+        !!linkConflict ||
+        cameraMode !== null;
+      if (blockingModal && !machineListenMode) return;
+    } else if (modalOpen && !machineListenMode) {
+      return;
+    }
 
     function onKeyDown(e) {
       const target = e.target;
@@ -282,8 +287,10 @@ function ScanScreen() {
           if (machineListenMode === "productLink") {
             setMachineListenMode(null);
             handleProductLinkScan(code);
-          } else if (machineListenMode === "master" || photoOnly) {
+          } else if (machineListenMode === "master") {
             setMachineListenMode(null);
+            handleMasterScan(code);
+          } else if (photoOnly) {
             handleMasterScan(code);
           } else {
             handleBarcode(code);
@@ -308,6 +315,7 @@ function ScanScreen() {
     cameraMode,
     machineListenMode,
     photoOnly,
+    modalOpen,
     handleBarcode,
   ]);
 
