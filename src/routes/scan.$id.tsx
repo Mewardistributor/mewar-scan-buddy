@@ -162,13 +162,16 @@ function ScanScreen() {
     !!linkConflict ||
     !!machineListenMode;
 
+  // Restored "Item not in data" flow: if the scanned barcode doesn't match
+  // any product in this summary, open the assign screen instead of just
+  // showing an error. Once assigned, this barcode is saved permanently.
   const handleBarcode = useCallback(
     (raw) => {
       const code = raw.trim();
       if (!code) return;
       const found = products.find((p) => (p.barcode ?? "").trim() === code);
       if (!found) {
-        toast.error(`Barcode not in this summary: ${code}`);
+        setAssignFlow({ barcode: code, suggestedName: "" });
         return;
       }
       if (found.status === "match") {
@@ -778,6 +781,7 @@ function ScanScreen() {
           onClose={() => setAssignFlow(null)}
           onAssigned={(p) => {
             setAssignFlow(null);
+            setProducts((prev) => prev.map((row) => (row.id === p.id ? p : row)));
             openProduct(p);
           }}
         />
@@ -961,7 +965,9 @@ function AddItemDialog({ summaryId, onClose, onAdded }) {
 
 // Shown when a scanned barcode is either brand-new, or already linked to
 // a name that doesn't fuzzy-match anything in THIS summary. User picks
-// the right product manually and assigns the scan to it permanently.
+// the right product manually and assigns the scan to it permanently —
+// this ALSO saves the barcode onto this specific product row so the
+// next scan of the same code, in this summary, matches instantly.
 function AssignFlowDialog({ barcode, suggestedName, products, onClose, onAssigned }) {
   const [query, setQuery] = useState(suggestedName || "");
   const [assigning, setAssigning] = useState(false);
@@ -1000,8 +1006,15 @@ function AssignFlowDialog({ barcode, suggestedName, products, onClose, onAssigne
     setAssigning(true);
     try {
       await linkBarcodeToProduct(barcode, p.product_name ?? "");
+      const { data: updated, error } = await supabase
+        .from("products")
+        .update({ barcode })
+        .eq("id", p.id)
+        .select()
+        .single();
+      if (error) throw error;
       toast.success(`Barcode assigned to "${p.product_name}"`);
-      onAssigned(p);
+      onAssigned(updated ?? { ...p, barcode });
     } catch (e) {
       toast.error(`Could not assign: ${e.message ?? e}`);
     } finally {
