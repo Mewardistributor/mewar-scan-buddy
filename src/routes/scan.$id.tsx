@@ -3,19 +3,15 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
-  Barcode,
   Camera,
   CheckCircle2,
   Flag,
   Keyboard,
-  Link2,
   Loader2,
   Search,
   ImagePlus,
   Image as ImageIcon,
   AlertCircle,
-  PlusCircle,
-  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, EmptyState, Spinner } from "@/components/AppShell";
@@ -36,14 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  computeStatus,
-  findBestNameMatch,
-  linkBarcodeToProduct,
-  lookupBarcodeMaster,
-  nameSimilarity,
-  supabase,
-} from "@/lib/supabase";
+import { computeStatus, supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/scan/$id")({
@@ -86,16 +75,7 @@ function ScanScreen() {
 
   const [products, setProducts] = useState([]);
   const [search, setSearch] = useState("");
-  const [viewFilter, setViewFilter] = useState("all");
-  const [showAdd, setShowAdd] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deleting, setDeleting] = useState(false);
-
-  // cameraMode: null | "verify" (normal barcode-summary scanning) |
-  // "master" (Scan Barcode quick action -> master lookup) |
-  // "productLink" (scan-to-link from inside the edit dialog)
-  const [cameraMode, setCameraMode] = useState(null);
-
+  const [camera, setCamera] = useState(false);
   const [photoMatch, setPhotoMatch] = useState(false);
   const [photoGallery, setPhotoGallery] = useState(false);
   const [active, setActive] = useState(null);
@@ -106,19 +86,6 @@ function ScanScreen() {
   const bufferRef = useRef("");
   const lastKeyRef = useRef(0);
   const lastAutoOpenedRef = useRef(null);
-
-  // "Item not in data" assign flow — when a scanned barcode isn't linked
-  // to anything (or doesn't fuzzy-match anything in this summary).
-  const [assignFlow, setAssignFlow] = useState(null); // { barcode, suggestedName }
-
-  // Conflict warning — when scan-to-link (from ProductCard) hits a
-  // barcode already linked to a different product name.
-  const [linkConflict, setLinkConflict] = useState(null); // { barcode, existingName, productId, productName }
-  const [linkTargetProduct, setLinkTargetProduct] = useState(null);
-
-  // null | "master" | "productLink" — when set, we're waiting for a physical
-  // USB/Bluetooth scanner's keystrokes instead of the camera.
-  const [machineListenMode, setMachineListenMode] = useState(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["scan", id],
@@ -149,29 +116,17 @@ function ScanScreen() {
 
   const photoOnly = products.length > 0 && products.every((p) => !(p.barcode ?? "").trim());
 
-  const modalOpen =
-    cameraMode !== null ||
-    photoMatch ||
-    photoGallery ||
-    !!active ||
-    !!readOnly ||
-    confirmDone ||
-    showAdd ||
-    !!deleteTarget ||
-    !!assignFlow ||
-    !!linkConflict ||
-    !!machineListenMode;
+  const modalOpen = camera || photoMatch || photoGallery || !!active || !!readOnly || confirmDone;
 
-  // Restored "Item not in data" flow: if the scanned barcode doesn't match
-  // any product in this summary, open the assign screen instead of just
-  // showing an error. Once assigned, this barcode is saved permanently.
+  // Simple, direct barcode match — no fuzzy logic, no external lookups.
+  // If this exact barcode is on a product in this summary, open it.
   const handleBarcode = useCallback(
     (raw) => {
       const code = raw.trim();
       if (!code) return;
       const found = products.find((p) => (p.barcode ?? "").trim() === code);
       if (!found) {
-        setAssignFlow({ barcode: code, suggestedName: "" });
+        toast.error(`Barcode not in this summary: ${code}`);
         return;
       }
       if (found.status === "match") {
@@ -193,90 +148,9 @@ function ScanScreen() {
     }
   }, []);
 
-  // ---- Master barcode scan (quick action, photoOnly toolbar) ----
-  async function handleMasterScan(code) {
-    setCameraMode(null);
-    try {
-      const existing = await lookupBarcodeMaster(code);
-      if (existing) {
-        const match = findBestNameMatch(products, existing.product_name);
-        if (match) {
-          if (match.status === "match") setReadOnly(match);
-          else setActive(match);
-          return;
-        }
-      }
-      // Not linked yet, or linked but nothing in THIS summary fuzzy-matches it.
-      setAssignFlow({ barcode: code, suggestedName: existing?.product_name ?? "" });
-    } catch (e) {
-      toast.error(`Lookup failed: ${e.message ?? e}`);
-    }
-  }
-
-  // ---- Scan-to-link (from inside the edit dialog, for one specific product) ----
-  async function handleProductLinkScan(code) {
-    setCameraMode(null);
-    const target = linkTargetProduct;
-    if (!target) return;
-    try {
-      const existing = await lookupBarcodeMaster(code);
-      if (existing) {
-        const same = nameSimilarity(existing.product_name, target.product_name ?? "") >= 0.7;
-        if (!same) {
-          setLinkConflict({
-            barcode: code,
-            existingName: existing.product_name,
-            productId: target.id,
-            productName: target.product_name ?? "",
-          });
-          setActive(target);
-          setLinkTargetProduct(null);
-          return;
-        }
-      }
-      await linkBarcodeToProduct(code, target.product_name ?? "");
-      toast.success(`Barcode linked to "${target.product_name}"`);
-    } catch (e) {
-      toast.error(`Could not link barcode: ${e.message ?? e}`);
-    } finally {
-      setActive(target);
-      setLinkTargetProduct(null);
-    }
-  }
-
-  async function confirmChangeLink() {
-    if (!linkConflict) return;
-    try {
-      await linkBarcodeToProduct(linkConflict.barcode, linkConflict.productName);
-      toast.success(`Barcode re-linked to "${linkConflict.productName}"`);
-    } catch (e) {
-      toast.error(`Could not change link: ${e.message ?? e}`);
-    } finally {
-      setLinkConflict(null);
-    }
-  }
-
+  // External USB / Bluetooth scanner: rapid keystrokes ending in Enter.
   useEffect(() => {
-    // SAFETY: for a normal barcode summary, only block when a real dialog
-    // is open. This is the simple, proven condition — normal barcode
-    // scanning must never be at risk.
-    if (!photoOnly) {
-      const blockingModal =
-        photoMatch ||
-        photoGallery ||
-        !!active ||
-        !!readOnly ||
-        confirmDone ||
-        showAdd ||
-        !!deleteTarget ||
-        !!assignFlow ||
-        !!linkConflict ||
-        cameraMode !== null;
-      if (blockingModal && !machineListenMode) return;
-    } else if (modalOpen && !machineListenMode) {
-      return;
-    }
-
+    if (modalOpen || photoOnly) return;
     function onKeyDown(e) {
       const target = e.target;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
@@ -286,42 +160,18 @@ function ScanScreen() {
       if (e.key === "Enter") {
         const code = bufferRef.current;
         bufferRef.current = "";
-        if (code.length >= 3) {
-          if (machineListenMode === "productLink") {
-            setMachineListenMode(null);
-            handleProductLinkScan(code);
-          } else if (machineListenMode === "master") {
-            setMachineListenMode(null);
-            handleMasterScan(code);
-          } else if (photoOnly) {
-            handleMasterScan(code);
-          } else {
-            handleBarcode(code);
-          }
-        }
+        if (code.length >= 3) handleBarcode(code);
         return;
       }
       if (e.key.length === 1) bufferRef.current += e.key;
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    photoMatch,
-    photoGallery,
-    active,
-    readOnly,
-    confirmDone,
-    showAdd,
-    deleteTarget,
-    assignFlow,
-    linkConflict,
-    cameraMode,
-    machineListenMode,
-    photoOnly,
-    modalOpen,
-    handleBarcode,
-  ]);
+  }, [modalOpen, photoOnly, handleBarcode]);
 
+  // Search: starting-letters match on the first word. Any number typed after
+  // that is matched against the product's actual MRP, used as a "closest
+  // guess" sort — it never hides products, just ranks the closest first.
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return products;
@@ -356,47 +206,7 @@ function ScanScreen() {
     return [...base].sort((a, b) => mrpDistance(a) - mrpDistance(b));
   }, [products, search]);
 
-  function isMrpMismatch(p) {
-    return p.status === "match" && (p.completed_mrp ?? p.required_mrp ?? 0) !== (p.required_mrp ?? 0);
-  }
-  function issueRank(p) {
-    if (p.status === "short" || p.status === "excess") return 0;
-    if (isMrpMismatch(p)) return 1;
-    if (p.status === "pending") return 2;
-    if (p.status === "removed") return 3;
-    return 4;
-  }
-
-  const visibleProducts = useMemo(() => {
-    if (viewFilter === "all") return filtered;
-    if (viewFilter === "issues_first") return [...filtered].sort((a, b) => issueRank(a) - issueRank(b));
-    if (viewFilter === "short") return filtered.filter((p) => p.status === "short");
-    if (viewFilter === "excess") return filtered.filter((p) => p.status === "excess");
-    if (viewFilter === "mrp") return filtered.filter((p) => isMrpMismatch(p));
-    if (viewFilter === "pending") return filtered.filter((p) => p.status === "pending");
-    if (viewFilter === "correct") return filtered.filter((p) => p.status === "match" && !isMrpMismatch(p));
-    return filtered;
-  }, [filtered, viewFilter]);
-
-  async function deleteProduct() {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    const { error } = await supabase
-      .from("products")
-      .update({ status: "removed", change_note: "Removed by Admin" })
-      .eq("id", deleteTarget.id);
-    setDeleting(false);
-    if (error) {
-      toast.error(`Could not delete: ${error.message}`);
-      return;
-    }
-    setProducts((prev) =>
-      prev.map((p) => (p.id === deleteTarget.id ? { ...p, status: "removed", change_note: "Removed by Admin" } : p)),
-    );
-    toast.success("Item removed");
-    setDeleteTarget(null);
-  }
-
+  // Exactly one match while actively searching → auto-open its edit dialog.
   useEffect(() => {
     if (!search.trim() || filtered.length !== 1 || modalOpen) {
       if (filtered.length !== 1) lastAutoOpenedRef.current = null;
@@ -522,26 +332,17 @@ function ScanScreen() {
       </section>
 
       {photoOnly ? (
-        <div className="space-y-2">
-          <div className="grid gap-2 sm:grid-cols-3">
-            <Button variant="hero" size="lg" onClick={() => setPhotoMatch(true)}>
-              <ImagePlus className="h-5 w-5" /> Match by Photo
-            </Button>
-            <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
-              <ImageIcon className="h-5 w-5" /> Upload from Gallery
-            </Button>
-            <Button variant="outline" size="lg" onClick={() => setCameraMode("master")}>
-              <Barcode className="h-5 w-5" /> Scan Barcode (Camera)
-            </Button>
-          </div>
-          <p className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-            <Keyboard className="h-4 w-4 text-primary" />
-            USB / Bluetooth scanner also works here — just scan any item
-          </p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button variant="hero" size="lg" onClick={() => setPhotoMatch(true)}>
+            <ImagePlus className="h-5 w-5" /> Match by Photo
+          </Button>
+          <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
+            <ImageIcon className="h-5 w-5" /> Upload from Gallery
+          </Button>
         </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
-          <Button variant="hero" size="lg" onClick={() => setCameraMode("verify")}>
+          <Button variant="hero" size="lg" onClick={() => setCamera(true)}>
             <Camera className="h-5 w-5" /> Scan with Camera
           </Button>
           <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
@@ -561,40 +362,20 @@ function ScanScreen() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-
-        <div className="flex items-center gap-2">
-          <select
-            value={viewFilter}
-            onChange={(e) => setViewFilter(e.target.value)}
-            className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
-          >
-            <option value="all">All Items</option>
-            <option value="issues_first">Issues First</option>
-            <option value="short">Short Only</option>
-            <option value="excess">Excess Only</option>
-            <option value="mrp">MRP Mismatch Only</option>
-            <option value="pending">Not Scanned Only</option>
-            <option value="correct">Correct Only</option>
-          </select>
-          <Button variant="outline" size="sm" onClick={() => setShowAdd(true)}>
-            <PlusCircle className="h-4 w-4" /> Add Item
-          </Button>
-        </div>
-
-        {visibleProducts.length === 0 ? (
+        {filtered.length === 0 ? (
           <EmptyState
             icon={<Search className="h-6 w-6" />}
             title="No matching products"
-            description="Try another product name, barcode, or filter."
+            description="Try another product name or barcode."
           />
         ) : (
           <ul className="divide-y divide-border">
-            {visibleProducts.map((p) => (
-              <li key={p.id} className="flex items-center gap-2">
+            {filtered.map((p) => (
+              <li key={p.id}>
                 <button
                   type="button"
                   onClick={() => openProduct(p)}
-                  className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 py-3 text-left transition-colors hover:bg-secondary/40 active:scale-[0.995]"
+                  className="flex w-full cursor-pointer items-center justify-between gap-3 py-3 text-left transition-colors hover:bg-secondary/40 active:scale-[0.995]"
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{p.product_name}</span>
@@ -609,79 +390,20 @@ function ScanScreen() {
                     mrpMismatch={(p.completed_mrp ?? p.required_mrp ?? 0) !== (p.required_mrp ?? 0)}
                   />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setDeleteTarget(p)}
-                  className="shrink-0 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                  aria-label="Delete item"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
               </li>
             ))}
           </ul>
         )}
       </section>
 
-      {cameraMode === "verify" ? (
+      {camera ? (
         <CameraScanner
-          onClose={() => setCameraMode(null)}
+          onClose={() => setCamera(false)}
           onDetected={(code) => {
-            setCameraMode(null);
+            setCamera(false);
             handleBarcode(code);
           }}
         />
-      ) : null}
-
-      {cameraMode === "master" ? (
-        <CameraScanner onClose={() => setCameraMode(null)} onDetected={handleMasterScan} />
-      ) : null}
-
-      {cameraMode === "productLink" ? (
-        <CameraScanner
-          onClose={() => {
-            setCameraMode(null);
-            setActive(linkTargetProduct);
-            setLinkTargetProduct(null);
-          }}
-          onDetected={handleProductLinkScan}
-        />
-      ) : null}
-
-      {machineListenMode === "productLink" ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-sm space-y-4 rounded-2xl bg-card p-6 text-center shadow-xl">
-            <Barcode className="mx-auto h-10 w-10 animate-pulse text-primary" />
-            <p className="font-semibold">Ready to scan</p>
-            <p className="text-sm text-muted-foreground">
-              Point your barcode scanner at "{linkTargetProduct?.product_name}" and scan now.
-            </p>
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => {
-                setMachineListenMode(null);
-                setActive(linkTargetProduct);
-                setLinkTargetProduct(null);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {machineListenMode === "master" ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-sm space-y-4 rounded-2xl bg-card p-6 text-center shadow-xl">
-            <Barcode className="mx-auto h-10 w-10 animate-pulse text-primary" />
-            <p className="font-semibold">Ready to scan</p>
-            <p className="text-sm text-muted-foreground">Scan any item's barcode now.</p>
-            <Button variant="outline" className="w-full" onClick={() => setMachineListenMode(null)}>
-              Cancel
-            </Button>
-          </div>
-        </div>
       ) : null}
 
       {photoMatch ? (
@@ -703,17 +425,7 @@ function ScanScreen() {
       ) : null}
 
       {active ? (
-        <ProductCard
-          product={active}
-          onCancel={() => setActive(null)}
-          onSaved={onSaved}
-          onRequestScanLink={(mode) => {
-            setLinkTargetProduct(active);
-            setActive(null);
-            if (mode === "machine") setMachineListenMode("productLink");
-            else setCameraMode("productLink");
-          }}
-        />
+        <ProductCard product={active} onCancel={() => setActive(null)} onSaved={onSaved} />
       ) : null}
 
       <Dialog open={!!readOnly} onOpenChange={(o) => !o && setReadOnly(null)}>
@@ -761,78 +473,6 @@ function ScanScreen() {
           ) : null}
         </DialogContent>
       </Dialog>
-
-      {showAdd ? (
-        <AddItemDialog
-          summaryId={id}
-          onClose={() => setShowAdd(false)}
-          onAdded={(p) => {
-            setProducts((prev) => [...prev, p]);
-            setShowAdd(false);
-          }}
-        />
-      ) : null}
-
-      {assignFlow ? (
-        <AssignFlowDialog
-          barcode={assignFlow.barcode}
-          suggestedName={assignFlow.suggestedName}
-          products={products}
-          onClose={() => setAssignFlow(null)}
-          onAssigned={(p) => {
-            setAssignFlow(null);
-            setProducts((prev) => prev.map((row) => (row.id === p.id ? p : row)));
-            openProduct(p);
-          }}
-        />
-      ) : null}
-
-      <AlertDialog open={!!linkConflict} onOpenChange={(o) => !o && setLinkConflict(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Barcode already linked</AlertDialogTitle>
-            <AlertDialogDescription>
-              This barcode is currently linked to "{linkConflict?.existingName}". Change the link so it
-              points to "{linkConflict?.productName}" instead? The old link will be removed.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                confirmChangeLink();
-              }}
-            >
-              <Link2 className="h-4 w-4" /> Change Link
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !deleting && !o && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove this item?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteTarget?.product_name} will be marked as removed and shown in the "Items Removed by Admin"
-              section of the final report.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={deleting}
-              onClick={(e) => {
-                e.preventDefault();
-                deleteProduct();
-              }}
-            >
-              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <AlertDialog open={confirmDone} onOpenChange={(o) => !finishing && setConfirmDone(o)}>
         <AlertDialogContent>
@@ -883,213 +523,7 @@ function ReadRow({ label, mrp, box, pcs }) {
   );
 }
 
-function AddItemDialog({ summaryId, onClose, onAdded }) {
-  const [name, setName] = useState("");
-  const [barcode, setBarcode] = useState("");
-  const [mrp, setMrp] = useState("");
-  const [box, setBox] = useState("");
-  const [pcs, setPcs] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  async function save() {
-    if (!name.trim()) {
-      toast.error("Please enter a product name");
-      return;
-    }
-    setSaving(true);
-    const { data, error } = await supabase
-      .from("products")
-      .insert({
-        summary_id: summaryId,
-        barcode: barcode.trim() || null,
-        product_name: name.trim(),
-        required_mrp: Number(mrp) || 0,
-        required_box: Number(box) || 0,
-        required_pcs: Number(pcs) || 0,
-        status: "pending",
-        change_note: "Added by Admin",
-      })
-      .select()
-      .single();
-    setSaving(false);
-    if (error || !data) {
-      toast.error(`Could not add item: ${error?.message ?? "unknown error"}`);
-      return;
-    }
-    toast.success("Item added");
-    onAdded(data);
-  }
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && !saving && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add New Item</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <Label htmlFor="add-name" className="text-xs">Product Name</Label>
-            <Input id="add-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Lux Soap 100G" />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="add-barcode" className="text-xs">Barcode (optional)</Label>
-            <Input id="add-barcode" value={barcode} onChange={(e) => setBarcode(e.target.value)} />
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <div className="space-y-1">
-              <Label htmlFor="add-mrp" className="text-xs">MRP</Label>
-              <Input id="add-mrp" inputMode="decimal" value={mrp} onChange={(e) => setMrp(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="add-box" className="text-xs">Box</Label>
-              <Input id="add-box" inputMode="numeric" value={box} onChange={(e) => setBox(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="add-pcs" className="text-xs">Pcs</Label>
-              <Input id="add-pcs" inputMode="numeric" value={pcs} onChange={(e) => setPcs(e.target.value)} />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" onClick={onClose} disabled={saving}>
-              Cancel
-            </Button>
-            <Button variant="hero" onClick={save} disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Add Item
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Shown when a scanned barcode is either brand-new, or already linked to
-// a name that doesn't fuzzy-match anything in THIS summary. User picks
-// the right product manually and assigns the scan to it permanently —
-// this ALSO saves the barcode onto this specific product row so the
-// next scan of the same code, in this summary, matches instantly.
-function AssignFlowDialog({ barcode, suggestedName, products, onClose, onAssigned }) {
-  const [query, setQuery] = useState(suggestedName || "");
-  const [assigning, setAssigning] = useState(false);
-
-  const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return products.slice(0, 30);
-
-    const tokens = q.split(/\s+/).filter(Boolean);
-    const prefix = tokens[0];
-    const restTokens = tokens.slice(1);
-    const numericTokens = restTokens.filter((t) => /^\d+(\.\d+)?$/.test(t));
-    const textTokens = restTokens.filter((t) => !/^\d+(\.\d+)?$/.test(t));
-
-    const base = products.filter((p) => {
-      const name = (p.product_name ?? "").toLowerCase();
-      if (!name.startsWith(prefix)) return false;
-      for (const t of textTokens) {
-        if (!name.includes(t)) return false;
-      }
-      return true;
-    });
-
-    if (numericTokens.length === 0) return base.slice(0, 30);
-
-    const target = Number(numericTokens[numericTokens.length - 1]);
-    function mrpDistance(p) {
-      if (p.required_mrp == null) return Infinity;
-      return Math.abs(p.required_mrp - target);
-    }
-
-    return [...base].sort((a, b) => mrpDistance(a) - mrpDistance(b)).slice(0, 30);
-  }, [products, query]);
-
-  async function assignTo(p) {
-    setAssigning(true);
-    try {
-      await linkBarcodeToProduct(barcode, p.product_name ?? "");
-      const { data: updated, error } = await supabase
-        .from("products")
-        .update({ barcode })
-        .eq("id", p.id)
-        .select()
-        .single();
-      if (error) throw error;
-      toast.success(`Barcode assigned to "${p.product_name}"`);
-      onAssigned(updated ?? { ...p, barcode });
-    } catch (e) {
-      toast.error(`Could not assign: ${e.message ?? e}`);
-    } finally {
-      setAssigning(false);
-    }
-  }
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && !assigning && onClose()}>
-      <DialogContent className="top-4 max-h-[92dvh] max-w-md translate-y-0 flex-col gap-3 overflow-hidden p-0 sm:top-[50%] sm:max-h-[85vh] sm:translate-y-[-50%]">
-        <div className="space-y-3 border-b border-border p-4 pb-3">
-          <DialogHeader className="space-y-1">
-            <DialogTitle>Item not in data</DialogTitle>
-          </DialogHeader>
-          <p className="rounded-lg bg-secondary/70 px-3 py-2 font-mono text-xs text-muted-foreground">
-            Scanned: {barcode}
-          </p>
-          {suggestedName ? (
-            <p className="rounded-lg bg-primary/10 px-3 py-2 text-xs text-primary">
-              This barcode was last linked to: <span className="font-semibold">{suggestedName}</span>. Pick
-              the matching product below to (re)assign it.
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              This barcode hasn't been linked to any product yet. Search and select the correct product
-              below to link it permanently.
-            </p>
-          )}
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              autoFocus
-              className="h-11 pl-9"
-              placeholder="Search Product (Example: cl, cl 27)"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4 pt-3">
-          {results.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">No products match.</p>
-          ) : (
-            results.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                disabled={assigning}
-                onClick={() => assignTo(p)}
-                className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-secondary/50 active:scale-[0.99] disabled:opacity-50"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{p.product_name}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    MRP ₹{p.required_mrp ?? "-"} • {p.required_box ?? 0} Box / {p.required_pcs ?? 0} Pcs
-                  </span>
-                </span>
-                <Link2 className="h-5 w-5 shrink-0 text-primary" />
-              </button>
-            ))
-          )}
-        </div>
-
-        <div className="border-t border-border p-4 pt-3">
-          <Button variant="outline" className="w-full" onClick={onClose} disabled={assigning}>
-            Cancel
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function ProductCard({ product, onCancel, onSaved, onRequestScanLink }) {
+function ProductCard({ product, onCancel, onSaved }) {
   const [mrp, setMrp] = useState(String(product.completed_mrp ?? product.required_mrp ?? ""));
   const [box, setBox] = useState(product.completed_box === null ? "" : String(product.completed_box));
   const [pcs, setPcs] = useState(product.completed_pcs === null ? "" : String(product.completed_pcs));
@@ -1117,73 +551,60 @@ function ProductCard({ product, onCancel, onSaved, onRequestScanLink }) {
 
   return (
     <Dialog open onOpenChange={(o) => !o && !saving && onCancel()}>
-      <DialogContent className="top-4 max-h-[92dvh] max-w-md translate-y-0 flex-col gap-3 overflow-hidden p-0 sm:top-[50%] sm:max-h-[85vh] sm:translate-y-[-50%]">
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 pb-2">
-          <DialogHeader>
-            <DialogTitle className="text-left leading-snug">{product.product_name}</DialogTitle>
-          </DialogHeader>
-          {product.barcode ? (
-            <p className="-mt-2 font-mono text-xs text-muted-foreground">{product.barcode}</p>
-          ) : null}
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-left leading-snug">{product.product_name}</DialogTitle>
+        </DialogHeader>
+        {product.barcode ? (
+          <p className="-mt-2 font-mono text-xs text-muted-foreground">{product.barcode}</p>
+        ) : null}
 
-          <ReadRow
-            label="Required"
-            mrp={product.required_mrp}
-            box={product.required_box}
-            pcs={product.required_pcs}
-          />
+        <ReadRow
+          label="Required"
+          mrp={product.required_mrp}
+          box={product.required_box}
+          pcs={product.required_pcs}
+        />
 
-          {!product.barcode ? (
-            <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" onClick={() => onRequestScanLink("camera")}>
-                <Camera className="h-4 w-4" /> Scan with Camera
-              </Button>
-              <Button variant="outline" onClick={() => onRequestScanLink("machine")}>
-                <Barcode className="h-4 w-4" /> Scan with Machine
-              </Button>
+        <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
+            Completed
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="scan-mrp" className="text-xs">MRP</Label>
+              <Input
+                id="scan-mrp"
+                inputMode="decimal"
+                value={mrp}
+                onChange={(e) => setMrp(e.target.value)}
+              />
             </div>
-          ) : null}
-
-          <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
-              Completed
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="space-y-1">
-                <Label htmlFor="scan-mrp" className="text-xs">MRP</Label>
-                <Input
-                  id="scan-mrp"
-                  inputMode="decimal"
-                  value={mrp}
-                  onChange={(e) => setMrp(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="scan-box" className="text-xs">Box</Label>
-                <Input
-                  id="scan-box"
-                  inputMode="numeric"
-                  autoFocus
-                  placeholder="0"
-                  value={box}
-                  onChange={(e) => setBox(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="scan-pcs" className="text-xs">Pcs</Label>
-                <Input
-                  id="scan-pcs"
-                  inputMode="numeric"
-                  placeholder="0"
-                  value={pcs}
-                  onChange={(e) => setPcs(e.target.value)}
-                />
-              </div>
+            <div className="space-y-1">
+              <Label htmlFor="scan-box" className="text-xs">Box</Label>
+              <Input
+                id="scan-box"
+                inputMode="numeric"
+                autoFocus
+                placeholder="0"
+                value={box}
+                onChange={(e) => setBox(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="scan-pcs" className="text-xs">Pcs</Label>
+              <Input
+                id="scan-pcs"
+                inputMode="numeric"
+                placeholder="0"
+                value={pcs}
+                onChange={(e) => setPcs(e.target.value)}
+              />
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 border-t border-border p-4 pt-3">
+        <div className="grid grid-cols-2 gap-2">
           <Button variant="outline" onClick={onCancel} disabled={saving}>
             Cancel
           </Button>
