@@ -14,10 +14,7 @@ const DialogPortal = DialogPrimitive.Portal;
 
 const DialogClose = DialogPrimitive.Close;
 
-const DialogOverlay = React.forwardRef
-  React.ElementRef<typeof DialogPrimitive.Overlay>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
->(({ className, ...props }, ref) => (
+const DialogOverlay = React.forwardRef(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
@@ -29,22 +26,13 @@ const DialogOverlay = React.forwardRef
 ));
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
-const DialogContent = React.forwardRef
-  React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, onPointerDownOutside, onInteractOutside, ...props }, ref) => {
-  // The floating calculator button/panel is rendered outside every Dialog
-  // (it needs to stay visible above whatever dialog is open). Radix treats
-  // a click on it as an "outside click" and dismisses the dialog before
-  // the calculator even gets a chance to open. We tag the calculator's
-  // root with data-floating-calculator and ignore outside-dismissal for
-  // clicks that land inside it.
-  function isFromFloatingCalculator(event: Event) {
-    const target = event.target as HTMLElement | null;
+const DialogContent = React.forwardRef(({ className, children, onPointerDownOutside, onInteractOutside, ...props }, ref) => {
+  function isFromFloatingCalculator(event) {
+    const target = event.target;
     return !!target?.closest("[data-floating-calculator]");
   }
 
-  function handlePointerDownOutside(event: Parameters<NonNullable<typeof onPointerDownOutside>>[0]) {
+  function handlePointerDownOutside(event) {
     if (isFromFloatingCalculator(event)) {
       event.preventDefault();
       return;
@@ -52,7 +40,7 @@ const DialogContent = React.forwardRef
     onPointerDownOutside?.(event);
   }
 
-  function handleInteractOutside(event: Parameters<NonNullable<typeof onInteractOutside>>[0]) {
+  function handleInteractOutside(event) {
     if (isFromFloatingCalculator(event)) {
       event.preventDefault();
       return;
@@ -84,12 +72,12 @@ const DialogContent = React.forwardRef
 });
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
-const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+const DialogHeader = ({ className, ...props }) => (
   <div className={cn("flex flex-col space-y-1.5 text-center sm:text-left", className)} {...props} />
 );
 DialogHeader.displayName = "DialogHeader";
 
-const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+const DialogFooter = ({ className, ...props }) => (
   <div
     className={cn("flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2", className)}
     {...props}
@@ -97,10 +85,7 @@ const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 );
 DialogFooter.displayName = "DialogFooter";
 
-const DialogTitle = React.forwardRef
-  React.ElementRef<typeof DialogPrimitive.Title>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
->(({ className, ...props }, ref) => (
+const DialogTitle = React.forwardRef(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
     className={cn("text-lg font-semibold leading-none tracking-tight", className)}
@@ -109,10 +94,7 @@ const DialogTitle = React.forwardRef
 ));
 DialogTitle.displayName = DialogPrimitive.Title.displayName;
 
-const DialogDescription = React.forwardRef
-  React.ElementRef<typeof DialogPrimitive.Description>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
->(({ className, ...props }, ref) => (
+const DialogDescription = React.forwardRef(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}
     className={cn("text-sm text-muted-foreground", className)}
