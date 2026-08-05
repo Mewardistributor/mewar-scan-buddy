@@ -7,11 +7,14 @@ import {
   CheckCircle2,
   Flag,
   Keyboard,
+  Link2,
   Loader2,
   Search,
   ImagePlus,
   Image as ImageIcon,
   AlertCircle,
+  PlusCircle,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell, EmptyState, Spinner } from "@/components/AppShell";
@@ -75,6 +78,10 @@ function ScanScreen() {
 
   const [products, setProducts] = useState([]);
   const [search, setSearch] = useState("");
+  const [viewFilter, setViewFilter] = useState("all");
+  const [showAdd, setShowAdd] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const [camera, setCamera] = useState(false);
   const [photoMatch, setPhotoMatch] = useState(false);
   const [photoGallery, setPhotoGallery] = useState(false);
@@ -86,6 +93,14 @@ function ScanScreen() {
   const bufferRef = useRef("");
   const lastKeyRef = useRef(0);
   const lastAutoOpenedRef = useRef(null);
+
+  // "Item not in data" — when a scanned/typed barcode doesn't match any
+  // product in THIS summary, we open this instead of just a toast, so the
+  // person can search-and-select the right product and link this barcode
+  // to it (written directly onto that product's own barcode column —
+  // simple per-summary link, no cross-summary lookup table involved).
+  const [assignFlow, setAssignFlow] = useState(null); // { barcode }
+  const [assigning, setAssigning] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["scan", id],
@@ -116,17 +131,28 @@ function ScanScreen() {
 
   const photoOnly = products.length > 0 && products.every((p) => !(p.barcode ?? "").trim());
 
-  const modalOpen = camera || photoMatch || photoGallery || !!active || !!readOnly || confirmDone;
+  const modalOpen =
+    camera ||
+    photoMatch ||
+    photoGallery ||
+    !!active ||
+    !!readOnly ||
+    confirmDone ||
+    showAdd ||
+    !!deleteTarget ||
+    !!assignFlow;
 
   // Simple, direct barcode match — no fuzzy logic, no external lookups.
   // If this exact barcode is on a product in this summary, open it.
+  // If not, instead of a dead-end toast, open the assign flow so the
+  // person can link it to the correct product right there.
   const handleBarcode = useCallback(
     (raw) => {
       const code = raw.trim();
       if (!code) return;
       const found = products.find((p) => (p.barcode ?? "").trim() === code);
       if (!found) {
-        toast.error(`Barcode not in this summary: ${code}`);
+        setAssignFlow({ barcode: code });
         return;
       }
       if (found.status === "match") {
@@ -149,6 +175,8 @@ function ScanScreen() {
   }, []);
 
   // External USB / Bluetooth scanner: rapid keystrokes ending in Enter.
+  // UNCHANGED structure from the known-stable version — same simple
+  // condition, same buffer logic. Do not add extra modes/branches here.
   useEffect(() => {
     if (modalOpen || photoOnly) return;
     function onKeyDown(e) {
@@ -206,6 +234,47 @@ function ScanScreen() {
     return [...base].sort((a, b) => mrpDistance(a) - mrpDistance(b));
   }, [products, search]);
 
+  function isMrpMismatch(p) {
+    return p.status === "match" && (p.completed_mrp ?? p.required_mrp ?? 0) !== (p.required_mrp ?? 0);
+  }
+  function issueRank(p) {
+    if (p.status === "short" || p.status === "excess") return 0;
+    if (isMrpMismatch(p)) return 1;
+    if (p.status === "pending") return 2;
+    if (p.status === "removed") return 3;
+    return 4;
+  }
+
+  const visibleProducts = useMemo(() => {
+    if (viewFilter === "all") return filtered;
+    if (viewFilter === "issues_first") return [...filtered].sort((a, b) => issueRank(a) - issueRank(b));
+    if (viewFilter === "short") return filtered.filter((p) => p.status === "short");
+    if (viewFilter === "excess") return filtered.filter((p) => p.status === "excess");
+    if (viewFilter === "mrp") return filtered.filter((p) => isMrpMismatch(p));
+    if (viewFilter === "pending") return filtered.filter((p) => p.status === "pending");
+    if (viewFilter === "correct") return filtered.filter((p) => p.status === "match" && !isMrpMismatch(p));
+    return filtered;
+  }, [filtered, viewFilter]);
+
+  async function deleteProduct() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const { error } = await supabase
+      .from("products")
+      .update({ status: "removed", change_note: "Removed by Admin" })
+      .eq("id", deleteTarget.id);
+    setDeleting(false);
+    if (error) {
+      toast.error(`Could not delete: ${error.message}`);
+      return;
+    }
+    setProducts((prev) =>
+      prev.map((p) => (p.id === deleteTarget.id ? { ...p, status: "removed", change_note: "Removed by Admin" } : p)),
+    );
+    toast.success("Item removed");
+    setDeleteTarget(null);
+  }
+
   // Exactly one match while actively searching → auto-open its edit dialog.
   useEffect(() => {
     if (!search.trim() || filtered.length !== 1 || modalOpen) {
@@ -221,6 +290,28 @@ function ScanScreen() {
   function openProduct(p) {
     if (p.status === "match") setReadOnly(p);
     else setActive(p);
+  }
+
+  // Links a scanned "not in data" barcode directly onto a chosen product's
+  // own barcode column — simple, per-summary, no external table.
+  async function assignBarcodeTo(p) {
+    if (!assignFlow) return;
+    setAssigning(true);
+    const { data, error } = await supabase
+      .from("products")
+      .update({ barcode: assignFlow.barcode })
+      .eq("id", p.id)
+      .select()
+      .single();
+    setAssigning(false);
+    if (error || !data) {
+      toast.error(`Could not link barcode: ${error?.message ?? "unknown error"}`);
+      return;
+    }
+    setProducts((prev) => prev.map((row) => (row.id === data.id ? data : row)));
+    setAssignFlow(null);
+    toast.success(`Barcode linked to "${data.product_name}"`);
+    openProduct(data);
   }
 
   function onSaved(updated) {
@@ -362,20 +453,40 @@ function ScanScreen() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        {filtered.length === 0 ? (
+
+        <div className="flex items-center gap-2">
+          <select
+            value={viewFilter}
+            onChange={(e) => setViewFilter(e.target.value)}
+            className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+          >
+            <option value="all">All Items</option>
+            <option value="issues_first">Issues First</option>
+            <option value="short">Short Only</option>
+            <option value="excess">Excess Only</option>
+            <option value="mrp">MRP Mismatch Only</option>
+            <option value="pending">Not Scanned Only</option>
+            <option value="correct">Correct Only</option>
+          </select>
+          <Button variant="outline" size="sm" onClick={() => setShowAdd(true)}>
+            <PlusCircle className="h-4 w-4" /> Add Item
+          </Button>
+        </div>
+
+        {visibleProducts.length === 0 ? (
           <EmptyState
             icon={<Search className="h-6 w-6" />}
             title="No matching products"
-            description="Try another product name or barcode."
+            description="Try another product name, barcode, or filter."
           />
         ) : (
           <ul className="divide-y divide-border">
-            {filtered.map((p) => (
-              <li key={p.id}>
+            {visibleProducts.map((p) => (
+              <li key={p.id} className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => openProduct(p)}
-                  className="flex w-full cursor-pointer items-center justify-between gap-3 py-3 text-left transition-colors hover:bg-secondary/40 active:scale-[0.995]"
+                  className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 py-3 text-left transition-colors hover:bg-secondary/40 active:scale-[0.995]"
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{p.product_name}</span>
@@ -389,6 +500,14 @@ function ScanScreen() {
                     status={p.status}
                     mrpMismatch={(p.completed_mrp ?? p.required_mrp ?? 0) !== (p.required_mrp ?? 0)}
                   />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(p)}
+                  className="shrink-0 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                  aria-label="Delete item"
+                >
+                  <Trash2 className="h-4 w-4" />
                 </button>
               </li>
             ))}
@@ -474,6 +593,51 @@ function ScanScreen() {
         </DialogContent>
       </Dialog>
 
+      {showAdd ? (
+        <AddItemDialog
+          summaryId={id}
+          onClose={() => setShowAdd(false)}
+          onAdded={(p) => {
+            setProducts((prev) => [...prev, p]);
+            setShowAdd(false);
+          }}
+        />
+      ) : null}
+
+      {assignFlow ? (
+        <AssignFlowDialog
+          barcode={assignFlow.barcode}
+          products={products}
+          assigning={assigning}
+          onClose={() => setAssignFlow(null)}
+          onAssign={assignBarcodeTo}
+        />
+      ) : null}
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !deleting && !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.product_name} will be marked as removed and shown in the "Items Removed by Admin"
+              section of the final report.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(e) => {
+                e.preventDefault();
+                deleteProduct();
+              }}
+            >
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={confirmDone} onOpenChange={(o) => !finishing && setConfirmDone(o)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -520,6 +684,155 @@ function ReadRow({ label, mrp, box, pcs }) {
         ))}
       </div>
     </div>
+  );
+}
+
+function AddItemDialog({ summaryId, onClose, onAdded }) {
+  const [name, setName] = useState("");
+  const [barcode, setBarcode] = useState("");
+  const [mrp, setMrp] = useState("");
+  const [box, setBox] = useState("");
+  const [pcs, setPcs] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!name.trim()) {
+      toast.error("Please enter a product name");
+      return;
+    }
+    setSaving(true);
+    const { data, error } = await supabase
+      .from("products")
+      .insert({
+        summary_id: summaryId,
+        barcode: barcode.trim() || null,
+        product_name: name.trim(),
+        required_mrp: Number(mrp) || 0,
+        required_box: Number(box) || 0,
+        required_pcs: Number(pcs) || 0,
+        status: "pending",
+        change_note: "Added by Admin",
+      })
+      .select()
+      .single();
+    setSaving(false);
+    if (error || !data) {
+      toast.error(`Could not add item: ${error?.message ?? "unknown error"}`);
+      return;
+    }
+    toast.success("Item added");
+    onAdded(data);
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && !saving && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add New Item</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label htmlFor="add-name" className="text-xs">Product Name</Label>
+            <Input id="add-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Lux Soap 100G" />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="add-barcode" className="text-xs">Barcode (optional)</Label>
+            <Input id="add-barcode" value={barcode} onChange={(e) => setBarcode(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="add-mrp" className="text-xs">MRP</Label>
+              <Input id="add-mrp" inputMode="decimal" value={mrp} onChange={(e) => setMrp(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="add-box" className="text-xs">Box</Label>
+              <Input id="add-box" inputMode="numeric" value={box} onChange={(e) => setBox(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="add-pcs" className="text-xs">Pcs</Label>
+              <Input id="add-pcs" inputMode="numeric" value={pcs} onChange={(e) => setPcs(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="outline" onClick={onClose} disabled={saving}>
+              Cancel
+            </Button>
+            <Button variant="hero" onClick={save} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Add Item
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Shown when a scanned/typed barcode doesn't match anything in THIS
+// summary. Search + select the correct item, and its barcode gets set
+// to the scanned code directly (simple per-summary link only).
+function AssignFlowDialog({ barcode, products, assigning, onClose, onAssign }) {
+  const [query, setQuery] = useState("");
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const base = products.filter((p) => p.status !== "removed");
+    if (!q) return base.slice(0, 30);
+    return base.filter((p) => (p.product_name ?? "").toLowerCase().includes(q)).slice(0, 30);
+  }, [products, query]);
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && !assigning && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Item not in data</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="rounded-lg bg-secondary/70 px-3 py-2 font-mono text-xs text-muted-foreground">
+            Scanned: {barcode}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            This barcode isn't linked to anything in this summary yet. Search and select the correct
+            product below to link it.
+          </p>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              autoFocus
+              className="h-11 pl-9"
+              placeholder="Search product name..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <div className="max-h-72 space-y-2 overflow-y-auto">
+            {results.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">No products match.</p>
+            ) : (
+              results.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  disabled={assigning}
+                  onClick={() => onAssign(p)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-secondary/50 active:scale-[0.99] disabled:opacity-50"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{p.product_name}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Req {p.required_box ?? 0} Box / {p.required_pcs ?? 0} Pcs
+                    </span>
+                  </span>
+                  <Link2 className="h-5 w-5 shrink-0 text-primary" />
+                </button>
+              ))
+            )}
+          </div>
+          <Button variant="outline" className="w-full" onClick={onClose} disabled={assigning}>
+            Cancel
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
