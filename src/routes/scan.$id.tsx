@@ -35,7 +35,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { computeStatus, supabase } from "@/lib/supabase";
+import { computeStatus, findBestNameMatch, lookupBarcodeMaster, supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/scan/$id")({
@@ -142,24 +142,62 @@ function ScanScreen() {
     !!deleteTarget ||
     !!assignFlow;
 
-  // Simple, direct barcode match — no fuzzy logic, no external lookups.
-  // If this exact barcode is on a product in this summary, open it.
-  // If not, instead of a dead-end toast, open the assign flow so the
-  // person can link it to the correct product right there.
+  // Barcode match, in order:
+  //  1. Exact match against this summary's own products (unchanged,
+  //     original known-stable behavior).
+  //  2. Fallback: look up the scanned code in the shared barcode_master
+  //     table (old data from before this summary existed) and, if it has
+  //     a product name on file, fuzzy-match that name against THIS
+  //     summary's products. If found, open it AND save the barcode onto
+  //     that product's own barcode column so next time it's an instant
+  //     exact match (no master-table lookup needed).
+  //  3. Nothing found anywhere -> same "Item not in data" assign flow as
+  //     before, unchanged.
   const handleBarcode = useCallback(
-    (raw) => {
+    async (raw) => {
       const code = raw.trim();
       if (!code) return;
+
       const found = products.find((p) => (p.barcode ?? "").trim() === code);
-      if (!found) {
-        setAssignFlow({ barcode: code });
+      if (found) {
+        if (found.status === "match") {
+          setReadOnly(found);
+        } else {
+          setActive(found);
+        }
         return;
       }
-      if (found.status === "match") {
-        setReadOnly(found);
-        return;
+
+      // Not an exact match in this summary — try the master barcode list
+      // before giving up. Any failure here (network, table missing, etc.)
+      // just falls through to the existing assign-flow dialog below.
+      try {
+        const master = await lookupBarcodeMaster(code);
+        if (master?.product_name) {
+          const fuzzy = findBestNameMatch(products, master.product_name);
+          if (fuzzy) {
+            const { data, error } = await supabase
+              .from("products")
+              .update({ barcode: code })
+              .eq("id", fuzzy.id)
+              .select()
+              .single();
+            if (!error && data) {
+              setProducts((prev) => prev.map((row) => (row.id === data.id ? data : row)));
+              if (data.status === "match") {
+                setReadOnly(data);
+              } else {
+                setActive(data);
+              }
+              return;
+            }
+          }
+        }
+      } catch {
+        // ignore lookup failures, fall through to assign flow
       }
-      setActive(found);
+
+      setAssignFlow({ barcode: code });
     },
     [products],
   );
