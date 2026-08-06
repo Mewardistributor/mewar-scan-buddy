@@ -93,6 +93,10 @@ function ScanScreen() {
   const bufferRef = useRef("");
   const lastKeyRef = useRef(0);
   const lastAutoOpenedRef = useRef(null);
+  // Separate refs for the isolated photoOnly (Without Scanner) listener —
+  // kept distinct from the ones above on purpose.
+  const photoBufferRef = useRef("");
+  const photoLastKeyRef = useRef(0);
 
   // "Item not in data" — when a scanned/typed barcode doesn't match any
   // product in THIS summary, we open this instead of just a toast, so the
@@ -234,6 +238,31 @@ function ScanScreen() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [modalOpen, photoOnly, handleBarcode]);
+
+  // SEPARATE, isolated listener — ONLY for "Without Scanner" (photoOnly)
+  // summaries, so a physical USB/Bluetooth scanner can link a barcode to
+  // an item here too. Uses its own buffer/timing refs, entirely
+  // independent from the listener above, so the proven normal-barcode
+  // path is never touched or affected by this addition.
+  useEffect(() => {
+    if (!photoOnly || modalOpen) return;
+    function onKeyDown(e) {
+      const target = e.target;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      const now = Date.now();
+      if (now - photoLastKeyRef.current > 120) photoBufferRef.current = "";
+      photoLastKeyRef.current = now;
+      if (e.key === "Enter") {
+        const code = photoBufferRef.current;
+        photoBufferRef.current = "";
+        if (code.length >= 3) handleBarcode(code);
+        return;
+      }
+      if (e.key.length === 1) photoBufferRef.current += e.key;
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [photoOnly, modalOpen, handleBarcode]);
 
   // Search: starting-letters match on the first word. Any number typed after
   // that is matched against the product's actual MRP, used as a "closest
@@ -461,13 +490,19 @@ function ScanScreen() {
       </section>
 
       {photoOnly ? (
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Button variant="hero" size="lg" onClick={() => setPhotoMatch(true)}>
-            <ImagePlus className="h-5 w-5" /> Match by Photo
-          </Button>
-          <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
-            <ImageIcon className="h-5 w-5" /> Upload from Gallery
-          </Button>
+        <div className="space-y-2">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button variant="hero" size="lg" onClick={() => setPhotoMatch(true)}>
+              <ImagePlus className="h-5 w-5" /> Match by Photo
+            </Button>
+            <Button variant="outline" size="lg" onClick={() => setPhotoGallery(true)}>
+              <ImageIcon className="h-5 w-5" /> Upload from Gallery
+            </Button>
+          </div>
+          <p className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+            <Keyboard className="h-4 w-4 text-primary" />
+            USB / Bluetooth scanner also works here — just scan any item's barcode
+          </p>
         </div>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2">
