@@ -36,7 +36,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { computeStatus, findBestNameMatch, linkBarcodeToProduct, lookupBarcodeMaster, supabase, type Product, type ProductStatus } from "@/lib/supabase";
+import { computeStatus, findBestNameMatch, linkBarcodeToProduct, lookupBarcodeMaster, supabase, type Product } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/scan/$id")({
