@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Barcode,
   Camera,
   CheckCircle2,
   Flag,
@@ -35,7 +36,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { computeStatus, findBestNameMatch, lookupBarcodeMaster, supabase } from "@/lib/supabase";
+import { computeStatus, findBestNameMatch, linkBarcodeToProduct, lookupBarcodeMaster, supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/scan/$id")({
@@ -105,6 +106,16 @@ function ScanScreen() {
   // simple per-summary link, no cross-summary lookup table involved).
   const [assignFlow, setAssignFlow] = useState(null); // { barcode }
   const [assigning, setAssigning] = useState(false);
+
+  // "Scan Barcode & Link to This Product" — used from inside the edit
+  // dialog when a product has no barcode yet. Two ways in: the phone
+  // camera (linkCamera), or a wireless USB/Bluetooth machine scan
+  // (linkMachineActive) — both end up saving the barcode onto that one
+  // product, without closing the edit dialog.
+  const [linkCamera, setLinkCamera] = useState(false);
+  const [linkMachineActive, setLinkMachineActive] = useState(false);
+  const linkBufferRef = useRef("");
+  const linkLastKeyRef = useRef(0);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["scan", id],
@@ -264,6 +275,58 @@ function ScanScreen() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [photoOnly, modalOpen, handleBarcode]);
 
+  // Saves a scanned code onto the currently-open ProductCard's product —
+  // used by both the "Scan with Camera" and "Scan with Machine" buttons
+  // inside the edit dialog. Also best-effort saves to the shared
+  // barcode_master table so future summaries recognize it too.
+  async function linkBarcodeToActiveProduct(code) {
+    if (!active) return;
+    const target = active;
+    const { data, error } = await supabase
+      .from("products")
+      .update({ barcode: code })
+      .eq("id", target.id)
+      .select()
+      .single();
+    if (error || !data) {
+      toast.error(`Could not link barcode: ${error?.message ?? "unknown error"}`);
+      return;
+    }
+    setProducts((prev) => prev.map((row) => (row.id === data.id ? data : row)));
+    setActive(data);
+    try {
+      await linkBarcodeToProduct(code, data.product_name ?? "");
+    } catch {
+      // master-table save is best-effort; per-product save above already succeeded
+    }
+    toast.success("Barcode linked to this product");
+  }
+
+  // Wireless "Scan with Machine" listener — ONLY active while linking a
+  // barcode to the currently-open product. Fully separate buffer/timing
+  // refs from every other listener in this file, so it can never
+  // interfere with normal scanning.
+  useEffect(() => {
+    if (!linkMachineActive) return;
+    function onKeyDown(e) {
+      const target = e.target;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+      const now = Date.now();
+      if (now - linkLastKeyRef.current > 120) linkBufferRef.current = "";
+      linkLastKeyRef.current = now;
+      if (e.key === "Enter") {
+        const code = linkBufferRef.current;
+        linkBufferRef.current = "";
+        setLinkMachineActive(false);
+        if (code.length >= 3) linkBarcodeToActiveProduct(code);
+        return;
+      }
+      if (e.key.length === 1) linkBufferRef.current += e.key;
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [linkMachineActive, active]);
+
   // Search: starting-letters match on the first word. Any number typed after
   // that is matched against the product's actual MRP, used as a "closest
   // guess" sort — it never hides products, just ranks the closest first.
@@ -376,6 +439,15 @@ function ScanScreen() {
       return;
     }
     setProducts((prev) => prev.map((row) => (row.id === data.id ? data : row)));
+    // Also save this barcode<->name pairing to the shared barcode_master
+    // table (best-effort) so that ANY future summary — not just this one —
+    // recognizes this barcode automatically next time, instead of only
+    // working inside this current summary.
+    try {
+      await linkBarcodeToProduct(assignFlow.barcode, data.product_name ?? "");
+    } catch {
+      // master-table save is best-effort; per-summary save above already succeeded
+    }
     setAssignFlow(null);
     toast.success(`Barcode linked to "${data.product_name}"`);
     openProduct(data);
@@ -617,7 +689,26 @@ function ScanScreen() {
       ) : null}
 
       {active ? (
-        <ProductCard product={active} onCancel={() => setActive(null)} onSaved={onSaved} />
+        <ProductCard
+          product={active}
+          onCancel={() => setActive(null)}
+          onSaved={onSaved}
+          onRequestScanLink={(mode) => {
+            if (mode === "camera") setLinkCamera(true);
+            else setLinkMachineActive(true);
+          }}
+          machineListening={linkMachineActive}
+        />
+      ) : null}
+
+      {linkCamera ? (
+        <CameraScanner
+          onClose={() => setLinkCamera(false)}
+          onDetected={(code) => {
+            setLinkCamera(false);
+            linkBarcodeToActiveProduct(code);
+          }}
+        />
       ) : null}
 
       <Dialog open={!!readOnly} onOpenChange={(o) => !o && setReadOnly(null)}>
@@ -847,10 +938,34 @@ function AssignFlowDialog({ barcode, products, assigning, onClose, onAssign }) {
   const [query, setQuery] = useState("");
 
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
     const base = products.filter((p) => p.status !== "removed");
+    const q = query.trim().toLowerCase();
     if (!q) return base.slice(0, 30);
-    return base.filter((p) => (p.product_name ?? "").toLowerCase().includes(q)).slice(0, 30);
+
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const prefix = tokens[0];
+    const restTokens = tokens.slice(1);
+    const numericTokens = restTokens.filter((t) => /^\d+(\.\d+)?$/.test(t));
+    const textTokens = restTokens.filter((t) => !/^\d+(\.\d+)?$/.test(t));
+
+    const matched = base.filter((p) => {
+      const name = (p.product_name ?? "").toLowerCase();
+      if (!name.startsWith(prefix)) return false;
+      for (const t of textTokens) {
+        if (!name.includes(t)) return false;
+      }
+      return true;
+    });
+
+    if (numericTokens.length === 0) return matched.slice(0, 30);
+
+    const target = Number(numericTokens[numericTokens.length - 1]);
+    function mrpDistance(p) {
+      if (p.required_mrp == null) return Infinity;
+      return Math.abs(p.required_mrp - target);
+    }
+
+    return [...matched].sort((a, b) => mrpDistance(a) - mrpDistance(b)).slice(0, 30);
   }, [products, query]);
 
   return (
@@ -872,7 +987,7 @@ function AssignFlowDialog({ barcode, products, assigning, onClose, onAssign }) {
             <Input
               autoFocus
               className="h-11 pl-9"
-              placeholder="Search product name..."
+              placeholder="Search Product (Example: cl, cl 27)"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -892,7 +1007,7 @@ function AssignFlowDialog({ barcode, products, assigning, onClose, onAssign }) {
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{p.product_name}</span>
                     <span className="block text-xs text-muted-foreground">
-                      Req {p.required_box ?? 0} Box / {p.required_pcs ?? 0} Pcs
+                      MRP ₹{p.required_mrp ?? "-"} • {p.required_box ?? 0} Box / {p.required_pcs ?? 0} Pcs
                     </span>
                   </span>
                   <Link2 className="h-5 w-5 shrink-0 text-primary" />
@@ -909,7 +1024,7 @@ function AssignFlowDialog({ barcode, products, assigning, onClose, onAssign }) {
   );
 }
 
-function ProductCard({ product, onCancel, onSaved }) {
+function ProductCard({ product, onCancel, onSaved, onRequestScanLink, machineListening }) {
   const [mrp, setMrp] = useState(String(product.completed_mrp ?? product.required_mrp ?? ""));
   const [box, setBox] = useState(product.completed_box === null ? "" : String(product.completed_box));
   const [pcs, setPcs] = useState(product.completed_pcs === null ? "" : String(product.completed_pcs));
@@ -951,6 +1066,24 @@ function ProductCard({ product, onCancel, onSaved }) {
           box={product.required_box}
           pcs={product.required_pcs}
         />
+
+        {!product.barcode && onRequestScanLink ? (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" onClick={() => onRequestScanLink("camera")}>
+                <Camera className="h-4 w-4" /> Scan with Camera
+              </Button>
+              <Button variant="outline" onClick={() => onRequestScanLink("machine")}>
+                <Barcode className="h-4 w-4" /> Scan with Machine
+              </Button>
+            </div>
+            {machineListening ? (
+              <p className="rounded-lg bg-primary/10 px-3 py-2 text-center text-xs font-medium text-primary">
+                Listening for the wireless scanner… scan the item now
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-primary">
