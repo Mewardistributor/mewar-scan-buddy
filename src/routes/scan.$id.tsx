@@ -77,23 +77,23 @@ function ScanScreen() {
     }
   }, [user, navigate]);
 
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState("");
-  const [viewFilter, setViewFilter] = useState("all");
+  const [viewFilter, setViewFilter] = useState<string>("all");
   const [showAdd, setShowAdd] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [camera, setCamera] = useState(false);
   const [photoMatch, setPhotoMatch] = useState(false);
   const [photoGallery, setPhotoGallery] = useState(false);
-  const [active, setActive] = useState(null);
-  const [readOnly, setReadOnly] = useState(null);
+  const [active, setActive] = useState<Product | null>(null);
+  const [readOnly, setReadOnly] = useState<Product | null>(null);
   const [confirmDone, setConfirmDone] = useState(false);
   const [finishing, setFinishing] = useState(false);
-  const [flash, setFlash] = useState(null);
+  const [flash, setFlash] = useState<string | null>(null);
   const bufferRef = useRef("");
   const lastKeyRef = useRef(0);
-  const lastAutoOpenedRef = useRef(null);
+  const lastAutoOpenedRef = useRef<string | null>(null);
   // Separate refs for the isolated photoOnly (Without Scanner) listener —
   // kept distinct from the ones above on purpose.
   const photoBufferRef = useRef("");
@@ -104,7 +104,7 @@ function ScanScreen() {
   // person can search-and-select the right product and link this barcode
   // to it (written directly onto that product's own barcode column —
   // simple per-summary link, no cross-summary lookup table involved).
-  const [assignFlow, setAssignFlow] = useState(null); // { barcode }
+  const [assignFlow, setAssignFlow] = useState<{ barcode: string } | null>(null); // { barcode }
   const [assigning, setAssigning] = useState(false);
 
   // "Scan Barcode & Link to This Product" — used from inside the edit

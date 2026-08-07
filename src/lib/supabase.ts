@@ -91,6 +91,7 @@ export type Chalan = {
   bill_number: string;
   chalan_date: string | null;
   party_name: string;
+  owner_name: string | null;
   bill_value: number;
   boxes: string | null;
   remarks: string | null;
