@@ -126,7 +126,7 @@ function Dashboard() {
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto">
           <Button asChild variant="gold" size="lg" className="w-full sm:w-auto">
-            <Link to="/add">
+            <Link to="/add" search={{ mode: undefined }}>
               <Plus className="h-5 w-5" /> Add Summary
             </Link>
           </Button>
@@ -190,7 +190,7 @@ function Dashboard() {
               description="Upload a MARG dispatch Excel sheet to start verifying a dispatch."
               action={
                 <Button asChild variant="hero">
-                  <Link to="/add">
+                  <Link to="/add" search={{ mode: undefined }}>
                     <Plus className="h-4 w-4" /> Add Summary
                   </Link>
                 </Button>

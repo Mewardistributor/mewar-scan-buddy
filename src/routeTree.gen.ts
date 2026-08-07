@@ -9,15 +9,27 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AddRouteImport } from './routes/add'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
-import { Route as ReportIdRouteImport } from './routes/report.$id'
+import { Route as AddRouteImport } from './routes/add'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as ScanIdRouteImport } from './routes/scan.$id'
+import { Route as ReportIdRouteImport } from './routes/report.$id'
+import { Route as DriverRefreshmentRouteImport } from './routes/driver.refreshment'
+import { Route as DriverDashboardRouteImport } from './routes/driver.dashboard'
+import { Route as AdminVerificationRouteImport } from './routes/admin.verification'
+import { Route as AdminNotificationsRouteImport } from './routes/admin.notifications'
+import { Route as AdminMatchingRouteImport } from './routes/admin.matching'
+import { Route as AdminDriversRouteImport } from './routes/admin.drivers'
+import { Route as AdminChalanUploadRouteImport } from './routes/admin.chalan-upload'
+import { Route as AdminBillUploadRouteImport } from './routes/admin.bill-upload'
+import { Route as DriverTaskChalanIdRouteImport } from './routes/driver.task.$chalanId'
+import { Route as DriverNotDoneChalanIdRouteImport } from './routes/driver.not-done.$chalanId'
+import { Route as DriverDoneChalanIdRouteImport } from './routes/driver.done.$chalanId'
+import { Route as AdminVerificationChalanIdRouteImport } from './routes/admin.verification_.$chalanId'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AddRoute = AddRouteImport.update({
@@ -25,14 +37,9 @@ const AddRoute = AddRouteImport.update({
   path: '/add',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
-  id: '/sitemap.xml',
-  path: '/sitemap.xml',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ReportIdRoute = ReportIdRouteImport.update({
-  id: '/report/$id',
-  path: '/report/$id',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ScanIdRoute = ScanIdRouteImport.update({
@@ -40,52 +47,218 @@ const ScanIdRoute = ScanIdRouteImport.update({
   path: '/scan/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReportIdRoute = ReportIdRouteImport.update({
+  id: '/report/$id',
+  path: '/report/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DriverRefreshmentRoute = DriverRefreshmentRouteImport.update({
+  id: '/driver/refreshment',
+  path: '/driver/refreshment',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DriverDashboardRoute = DriverDashboardRouteImport.update({
+  id: '/driver/dashboard',
+  path: '/driver/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminVerificationRoute = AdminVerificationRouteImport.update({
+  id: '/admin/verification',
+  path: '/admin/verification',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminNotificationsRoute = AdminNotificationsRouteImport.update({
+  id: '/admin/notifications',
+  path: '/admin/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminMatchingRoute = AdminMatchingRouteImport.update({
+  id: '/admin/matching',
+  path: '/admin/matching',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminDriversRoute = AdminDriversRouteImport.update({
+  id: '/admin/drivers',
+  path: '/admin/drivers',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminChalanUploadRoute = AdminChalanUploadRouteImport.update({
+  id: '/admin/chalan-upload',
+  path: '/admin/chalan-upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminBillUploadRoute = AdminBillUploadRouteImport.update({
+  id: '/admin/bill-upload',
+  path: '/admin/bill-upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DriverTaskChalanIdRoute = DriverTaskChalanIdRouteImport.update({
+  id: '/driver/task/$chalanId',
+  path: '/driver/task/$chalanId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DriverNotDoneChalanIdRoute = DriverNotDoneChalanIdRouteImport.update({
+  id: '/driver/not-done/$chalanId',
+  path: '/driver/not-done/$chalanId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DriverDoneChalanIdRoute = DriverDoneChalanIdRouteImport.update({
+  id: '/driver/done/$chalanId',
+  path: '/driver/done/$chalanId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminVerificationChalanIdRoute =
+  AdminVerificationChalanIdRouteImport.update({
+    id: '/admin/verification_/$chalanId',
+    path: '/admin/verification/$chalanId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/add': typeof AddRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/admin/bill-upload': typeof AdminBillUploadRoute
+  '/admin/chalan-upload': typeof AdminChalanUploadRoute
+  '/admin/drivers': typeof AdminDriversRoute
+  '/admin/matching': typeof AdminMatchingRoute
+  '/admin/notifications': typeof AdminNotificationsRoute
+  '/admin/verification': typeof AdminVerificationRoute
+  '/driver/dashboard': typeof DriverDashboardRoute
+  '/driver/refreshment': typeof DriverRefreshmentRoute
   '/report/$id': typeof ReportIdRoute
   '/scan/$id': typeof ScanIdRoute
+  '/admin/verification/$chalanId': typeof AdminVerificationChalanIdRoute
+  '/driver/done/$chalanId': typeof DriverDoneChalanIdRoute
+  '/driver/not-done/$chalanId': typeof DriverNotDoneChalanIdRoute
+  '/driver/task/$chalanId': typeof DriverTaskChalanIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/add': typeof AddRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/admin/bill-upload': typeof AdminBillUploadRoute
+  '/admin/chalan-upload': typeof AdminChalanUploadRoute
+  '/admin/drivers': typeof AdminDriversRoute
+  '/admin/matching': typeof AdminMatchingRoute
+  '/admin/notifications': typeof AdminNotificationsRoute
+  '/admin/verification': typeof AdminVerificationRoute
+  '/driver/dashboard': typeof DriverDashboardRoute
+  '/driver/refreshment': typeof DriverRefreshmentRoute
   '/report/$id': typeof ReportIdRoute
   '/scan/$id': typeof ScanIdRoute
+  '/admin/verification/$chalanId': typeof AdminVerificationChalanIdRoute
+  '/driver/done/$chalanId': typeof DriverDoneChalanIdRoute
+  '/driver/not-done/$chalanId': typeof DriverNotDoneChalanIdRoute
+  '/driver/task/$chalanId': typeof DriverTaskChalanIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/add': typeof AddRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/admin/bill-upload': typeof AdminBillUploadRoute
+  '/admin/chalan-upload': typeof AdminChalanUploadRoute
+  '/admin/drivers': typeof AdminDriversRoute
+  '/admin/matching': typeof AdminMatchingRoute
+  '/admin/notifications': typeof AdminNotificationsRoute
+  '/admin/verification': typeof AdminVerificationRoute
+  '/driver/dashboard': typeof DriverDashboardRoute
+  '/driver/refreshment': typeof DriverRefreshmentRoute
   '/report/$id': typeof ReportIdRoute
   '/scan/$id': typeof ScanIdRoute
+  '/admin/verification_/$chalanId': typeof AdminVerificationChalanIdRoute
+  '/driver/done/$chalanId': typeof DriverDoneChalanIdRoute
+  '/driver/not-done/$chalanId': typeof DriverNotDoneChalanIdRoute
+  '/driver/task/$chalanId': typeof DriverTaskChalanIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/add' | '/sitemap.xml' | '/report/$id' | '/scan/$id'
+  fullPaths:
+    | '/'
+    | '/add'
+    | '/sitemap.xml'
+    | '/admin/bill-upload'
+    | '/admin/chalan-upload'
+    | '/admin/drivers'
+    | '/admin/matching'
+    | '/admin/notifications'
+    | '/admin/verification'
+    | '/driver/dashboard'
+    | '/driver/refreshment'
+    | '/report/$id'
+    | '/scan/$id'
+    | '/admin/verification/$chalanId'
+    | '/driver/done/$chalanId'
+    | '/driver/not-done/$chalanId'
+    | '/driver/task/$chalanId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/add' | '/sitemap.xml' | '/report/$id' | '/scan/$id'
-  id: '__root__' | '/' | '/add' | '/sitemap.xml' | '/report/$id' | '/scan/$id'
+  to:
+    | '/'
+    | '/add'
+    | '/sitemap.xml'
+    | '/admin/bill-upload'
+    | '/admin/chalan-upload'
+    | '/admin/drivers'
+    | '/admin/matching'
+    | '/admin/notifications'
+    | '/admin/verification'
+    | '/driver/dashboard'
+    | '/driver/refreshment'
+    | '/report/$id'
+    | '/scan/$id'
+    | '/admin/verification/$chalanId'
+    | '/driver/done/$chalanId'
+    | '/driver/not-done/$chalanId'
+    | '/driver/task/$chalanId'
+  id:
+    | '__root__'
+    | '/'
+    | '/add'
+    | '/sitemap.xml'
+    | '/admin/bill-upload'
+    | '/admin/chalan-upload'
+    | '/admin/drivers'
+    | '/admin/matching'
+    | '/admin/notifications'
+    | '/admin/verification'
+    | '/driver/dashboard'
+    | '/driver/refreshment'
+    | '/report/$id'
+    | '/scan/$id'
+    | '/admin/verification_/$chalanId'
+    | '/driver/done/$chalanId'
+    | '/driver/not-done/$chalanId'
+    | '/driver/task/$chalanId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AddRoute: typeof AddRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  AdminBillUploadRoute: typeof AdminBillUploadRoute
+  AdminChalanUploadRoute: typeof AdminChalanUploadRoute
+  AdminDriversRoute: typeof AdminDriversRoute
+  AdminMatchingRoute: typeof AdminMatchingRoute
+  AdminNotificationsRoute: typeof AdminNotificationsRoute
+  AdminVerificationRoute: typeof AdminVerificationRoute
+  DriverDashboardRoute: typeof DriverDashboardRoute
+  DriverRefreshmentRoute: typeof DriverRefreshmentRoute
   ReportIdRoute: typeof ReportIdRoute
   ScanIdRoute: typeof ScanIdRoute
+  AdminVerificationChalanIdRoute: typeof AdminVerificationChalanIdRoute
+  DriverDoneChalanIdRoute: typeof DriverDoneChalanIdRoute
+  DriverNotDoneChalanIdRoute: typeof DriverNotDoneChalanIdRoute
+  DriverTaskChalanIdRoute: typeof DriverTaskChalanIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/add': {
@@ -95,18 +268,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AddRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sitemap.xml': {
-      id: '/sitemap.xml'
-      path: '/sitemap.xml'
-      fullPath: '/sitemap.xml'
-      preLoaderRoute: typeof SitemapDotxmlRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/report/$id': {
-      id: '/report/$id'
-      path: '/report/$id'
-      fullPath: '/report/$id'
-      preLoaderRoute: typeof ReportIdRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/scan/$id': {
@@ -116,6 +282,97 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ScanIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/report/$id': {
+      id: '/report/$id'
+      path: '/report/$id'
+      fullPath: '/report/$id'
+      preLoaderRoute: typeof ReportIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/driver/refreshment': {
+      id: '/driver/refreshment'
+      path: '/driver/refreshment'
+      fullPath: '/driver/refreshment'
+      preLoaderRoute: typeof DriverRefreshmentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/driver/dashboard': {
+      id: '/driver/dashboard'
+      path: '/driver/dashboard'
+      fullPath: '/driver/dashboard'
+      preLoaderRoute: typeof DriverDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/verification': {
+      id: '/admin/verification'
+      path: '/admin/verification'
+      fullPath: '/admin/verification'
+      preLoaderRoute: typeof AdminVerificationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/notifications': {
+      id: '/admin/notifications'
+      path: '/admin/notifications'
+      fullPath: '/admin/notifications'
+      preLoaderRoute: typeof AdminNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/matching': {
+      id: '/admin/matching'
+      path: '/admin/matching'
+      fullPath: '/admin/matching'
+      preLoaderRoute: typeof AdminMatchingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/drivers': {
+      id: '/admin/drivers'
+      path: '/admin/drivers'
+      fullPath: '/admin/drivers'
+      preLoaderRoute: typeof AdminDriversRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/chalan-upload': {
+      id: '/admin/chalan-upload'
+      path: '/admin/chalan-upload'
+      fullPath: '/admin/chalan-upload'
+      preLoaderRoute: typeof AdminChalanUploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/bill-upload': {
+      id: '/admin/bill-upload'
+      path: '/admin/bill-upload'
+      fullPath: '/admin/bill-upload'
+      preLoaderRoute: typeof AdminBillUploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/driver/task/$chalanId': {
+      id: '/driver/task/$chalanId'
+      path: '/driver/task/$chalanId'
+      fullPath: '/driver/task/$chalanId'
+      preLoaderRoute: typeof DriverTaskChalanIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/driver/not-done/$chalanId': {
+      id: '/driver/not-done/$chalanId'
+      path: '/driver/not-done/$chalanId'
+      fullPath: '/driver/not-done/$chalanId'
+      preLoaderRoute: typeof DriverNotDoneChalanIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/driver/done/$chalanId': {
+      id: '/driver/done/$chalanId'
+      path: '/driver/done/$chalanId'
+      fullPath: '/driver/done/$chalanId'
+      preLoaderRoute: typeof DriverDoneChalanIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/verification_/$chalanId': {
+      id: '/admin/verification_/$chalanId'
+      path: '/admin/verification/$chalanId'
+      fullPath: '/admin/verification/$chalanId'
+      preLoaderRoute: typeof AdminVerificationChalanIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -123,8 +380,20 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AddRoute: AddRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  AdminBillUploadRoute: AdminBillUploadRoute,
+  AdminChalanUploadRoute: AdminChalanUploadRoute,
+  AdminDriversRoute: AdminDriversRoute,
+  AdminMatchingRoute: AdminMatchingRoute,
+  AdminNotificationsRoute: AdminNotificationsRoute,
+  AdminVerificationRoute: AdminVerificationRoute,
+  DriverDashboardRoute: DriverDashboardRoute,
+  DriverRefreshmentRoute: DriverRefreshmentRoute,
   ReportIdRoute: ReportIdRoute,
   ScanIdRoute: ScanIdRoute,
+  AdminVerificationChalanIdRoute: AdminVerificationChalanIdRoute,
+  DriverDoneChalanIdRoute: DriverDoneChalanIdRoute,
+  DriverNotDoneChalanIdRoute: DriverNotDoneChalanIdRoute,
+  DriverTaskChalanIdRoute: DriverTaskChalanIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

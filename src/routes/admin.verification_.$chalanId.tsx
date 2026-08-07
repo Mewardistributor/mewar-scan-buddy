@@ -16,7 +16,7 @@ import {
 } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 
-export const Route = createFileRoute("/admin/verification/$chalanId")({
+export const Route = createFileRoute("/admin/verification_/$chalanId")({
   component: () => (
     <AppShell>
       <ShopVerifyScreen />
