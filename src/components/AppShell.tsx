@@ -16,7 +16,13 @@ function splashAlreadyShown() {
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, ready } = useAuth();
   const navigate = useNavigate();
-  const [splashDone, setSplashDone] = useState(splashAlreadyShown);
+  const [mounted, setMounted] = useState(false);
+  const [splashDone, setSplashDone] = useState(true);
+
+  useEffect(() => {
+    setMounted(true);
+    if (!splashAlreadyShown()) setSplashDone(false);
+  }, []);
 
   useEffect(() => {
     if (!ready || !user) return;
