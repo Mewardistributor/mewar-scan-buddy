@@ -36,7 +36,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { computeStatus, findBestNameMatch, linkBarcodeToProduct, lookupBarcodeMaster, supabase } from "@/lib/supabase";
+import { computeStatus, findBestNameMatch, linkBarcodeToProduct, lookupBarcodeMaster, supabase, type Product, type ProductStatus } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/scan/$id")({
@@ -137,7 +137,10 @@ function ScanScreen() {
 
   const counts = useMemo(() => {
     const c = { match: 0, short: 0, excess: 0, pending: 0 };
-    for (const p of products) c[p.status] = (c[p.status] ?? 0) + 1;
+    for (const p of products) {
+      const k = p.status as keyof typeof c;
+      if (k in c) c[k] = (c[k] ?? 0) + 1;
+    }
     return c;
   }, [products]);
   const total = products.length;
@@ -169,7 +172,7 @@ function ScanScreen() {
   //  3. Nothing found anywhere -> same "Item not in data" assign flow as
   //     before, unchanged.
   const handleBarcode = useCallback(
-    async (raw) => {
+    async (raw: string) => {
       const code = raw.trim();
       if (!code) return;
 
@@ -217,7 +220,7 @@ function ScanScreen() {
     [products],
   );
 
-  const handlePhotoSelect = useCallback((found) => {
+  const handlePhotoSelect = useCallback((found: Product) => {
     setPhotoMatch(false);
     setPhotoGallery(false);
     if (found.status === "match") {
@@ -232,8 +235,8 @@ function ScanScreen() {
   // condition, same buffer logic. Do not add extra modes/branches here.
   useEffect(() => {
     if (modalOpen || photoOnly) return;
-    function onKeyDown(e) {
-      const target = e.target;
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
       const now = Date.now();
       if (now - lastKeyRef.current > 120) bufferRef.current = "";
@@ -257,8 +260,8 @@ function ScanScreen() {
   // path is never touched or affected by this addition.
   useEffect(() => {
     if (!photoOnly || modalOpen) return;
-    function onKeyDown(e) {
-      const target = e.target;
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
       const now = Date.now();
       if (now - photoLastKeyRef.current > 120) photoBufferRef.current = "";
@@ -279,7 +282,7 @@ function ScanScreen() {
   // used by both the "Scan with Camera" and "Scan with Machine" buttons
   // inside the edit dialog. Also best-effort saves to the shared
   // barcode_master table so future summaries recognize it too.
-  async function linkBarcodeToActiveProduct(code) {
+  async function linkBarcodeToActiveProduct(code: string) {
     if (!active) return;
     const target = active;
     const { data, error } = await supabase
@@ -308,8 +311,8 @@ function ScanScreen() {
   // interfere with normal scanning.
   useEffect(() => {
     if (!linkMachineActive) return;
-    function onKeyDown(e) {
-      const target = e.target;
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
       const now = Date.now();
       if (now - linkLastKeyRef.current > 120) linkBufferRef.current = "";
@@ -356,7 +359,7 @@ function ScanScreen() {
     if (numericTokens.length === 0) return base;
 
     const target = Number(numericTokens[numericTokens.length - 1]);
-    function mrpDistance(p) {
+    function mrpDistance(p: Product) {
       if (p.required_mrp == null) return Infinity;
       return Math.abs(p.required_mrp - target);
     }
@@ -364,10 +367,10 @@ function ScanScreen() {
     return [...base].sort((a, b) => mrpDistance(a) - mrpDistance(b));
   }, [products, search]);
 
-  function isMrpMismatch(p) {
+  function isMrpMismatch(p: Product) {
     return p.status === "match" && (p.completed_mrp ?? p.required_mrp ?? 0) !== (p.required_mrp ?? 0);
   }
-  function issueRank(p) {
+  function issueRank(p: Product) {
     if (p.status === "short" || p.status === "excess") return 0;
     if (isMrpMismatch(p)) return 1;
     if (p.status === "pending") return 2;
@@ -417,14 +420,14 @@ function ScanScreen() {
     openProduct(p);
   }, [filtered, search, modalOpen]);
 
-  function openProduct(p) {
+  function openProduct(p: Product) {
     if (p.status === "match") setReadOnly(p);
     else setActive(p);
   }
 
   // Links a scanned "not in data" barcode directly onto a chosen product's
   // own barcode column — simple, per-summary, no external table.
-  async function assignBarcodeTo(p) {
+  async function assignBarcodeTo(p: Product) {
     if (!assignFlow) return;
     setAssigning(true);
     const { data, error } = await supabase
@@ -453,7 +456,7 @@ function ScanScreen() {
     openProduct(data);
   }
 
-  function onSaved(updated) {
+  function onSaved(updated: Product) {
     const next = products.map((p) => (p.id === updated.id ? updated : p));
     setProducts(next);
     setActive(null);
@@ -693,7 +696,7 @@ function ScanScreen() {
           product={active}
           onCancel={() => setActive(null)}
           onSaved={onSaved}
-          onRequestScanLink={(mode) => {
+          onRequestScanLink={(mode: "camera" | "machine") => {
             if (mode === "camera") setLinkCamera(true);
             else setLinkMachineActive(true);
           }}
@@ -761,7 +764,7 @@ function ScanScreen() {
         <AddItemDialog
           summaryId={id}
           onClose={() => setShowAdd(false)}
-          onAdded={(p) => {
+          onAdded={(p: Product) => {
             setProducts((prev) => [...prev, p]);
             setShowAdd(false);
           }}
@@ -829,7 +832,7 @@ function ScanScreen() {
   );
 }
 
-function ReadRow({ label, mrp, box, pcs }) {
+function ReadRow({ label, mrp, box, pcs }: { label: string; mrp: number | null; box: number | null; pcs: number | null }) {
   return (
     <div className="rounded-xl bg-secondary/70 p-3">
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -851,7 +854,7 @@ function ReadRow({ label, mrp, box, pcs }) {
   );
 }
 
-function AddItemDialog({ summaryId, onClose, onAdded }) {
+function AddItemDialog({ summaryId, onClose, onAdded }: { summaryId: string; onClose: () => void; onAdded: (p: Product) => void }) {
   const [name, setName] = useState("");
   const [barcode, setBarcode] = useState("");
   const [mrp, setMrp] = useState("");
@@ -934,7 +937,7 @@ function AddItemDialog({ summaryId, onClose, onAdded }) {
 // Shown when a scanned/typed barcode doesn't match anything in THIS
 // summary. Search + select the correct item, and its barcode gets set
 // to the scanned code directly (simple per-summary link only).
-function AssignFlowDialog({ barcode, products, assigning, onClose, onAssign }) {
+function AssignFlowDialog({ barcode, products, assigning, onClose, onAssign }: { barcode: string; products: Product[]; assigning: boolean; onClose: () => void; onAssign: (p: Product) => void }) {
   const [query, setQuery] = useState("");
 
   const results = useMemo(() => {
@@ -960,7 +963,7 @@ function AssignFlowDialog({ barcode, products, assigning, onClose, onAssign }) {
     if (numericTokens.length === 0) return matched.slice(0, 30);
 
     const target = Number(numericTokens[numericTokens.length - 1]);
-    function mrpDistance(p) {
+    function mrpDistance(p: Product) {
       if (p.required_mrp == null) return Infinity;
       return Math.abs(p.required_mrp - target);
     }
@@ -1024,7 +1027,7 @@ function AssignFlowDialog({ barcode, products, assigning, onClose, onAssign }) {
   );
 }
 
-function ProductCard({ product, onCancel, onSaved, onRequestScanLink, machineListening }) {
+function ProductCard({ product, onCancel, onSaved, onRequestScanLink, machineListening }: { product: Product; onCancel: () => void; onSaved: (p: Product) => void; onRequestScanLink: (mode: "camera" | "machine") => void; machineListening: boolean }) {
   const [mrp, setMrp] = useState(String(product.completed_mrp ?? product.required_mrp ?? ""));
   const [box, setBox] = useState(product.completed_box === null ? "" : String(product.completed_box));
   const [pcs, setPcs] = useState(product.completed_pcs === null ? "" : String(product.completed_pcs));
